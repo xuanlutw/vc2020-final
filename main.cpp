@@ -1,6 +1,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstdint>
+#include "default.h"
 
 # define check(cond, msg, ...) do {                                             \
                                    if (!(cond)) {                               \
@@ -8,15 +9,6 @@
                                        exit(-1);                                \
                                    }                                            \
                                } while(0);
-
-// Define data type
-typedef uint8_t  u8;
-typedef uint16_t u16;
-typedef uint32_t u32;
-typedef uint64_t u64;
-typedef int8_t   i8;
-typedef int16_t  i16;
-typedef int32_t  i32;
 
 class Stream {
     public:
@@ -26,12 +18,16 @@ class Stream {
         u8   read_u8 ();
         u16  read_u16 ();
         void put (u32 content, u8 len);
-        u16  next_start_code ();
-        u32   counter;
+        u8   next_start_code ();
+        u8   now_start_code ();
+        u8   now_ext_code ();
     private:
         FILE* fp;
         u32   buf;
         u8    buf_len;
+        u32   counter;
+        u8    start_code;
+        u8    ext_code;
         void  read_buf();
         void  align();
 };
@@ -66,6 +62,7 @@ u32 Stream::read (u8 len) {
     // Read at most 32 bits from buffer
 
     check(len < 32, "Length more then 32!");
+    this->start_code = 0xb0; // Forbiddien
 
     while (this->buf_len < len)
         this->read_buf();
@@ -96,15 +93,21 @@ void Stream::put (u32 content, u8 len) {
     check(this->buf_len < 64, "Stream buffer overflow");
 }
 
-u16 Stream::next_start_code () {
+u8 Stream::next_start_code () {
     u8 status = 0;
     u8 tmp;
+    u8 tmp2;
 
     this->align();
     while (true) {
         tmp = this->read_u8();
-        if (status == 3)
+        if (status == 3) {
+            if (tmp == SCODE_EXT)
+                tmp2 = this->read(4);
+            this->start_code = tmp;
+            this->ext_code   = tmp2;
             return tmp;
+        }
         else if (tmp == 0)
             status += (status == 2)? 0: 1;
         else if (tmp == 1 && status == 2)
@@ -112,6 +115,14 @@ u16 Stream::next_start_code () {
         else 
             status = 0;
     }
+}
+
+u8 Stream::now_start_code () {
+    return this->start_code;
+}
+
+u8 Stream::now_ext_code () {
+    return this->ext_code;
 }
 //=======================================================
 
@@ -185,16 +196,17 @@ void H_node::triverse (u32 prefix) {
 #define HUFFMAN_CODE_END      1
 #define HUFFMAN_CODE_ESCAPE   2
 #define HUFFMAN_CODE_INTER_DC 3
+#define HUFFMAN_CODE_OTHER    4
 class Huffman {
     public:
         Huffman (char* str);
         void triverse ();
         void get (Stream* vc, bool fB14DC);
+        u8  type;
+        u8  run;
+        i16 level;
     private:
         H_node* root;
-        u8      type;
-        u8      run;
-        i16     level;
 };
 
 Huffman::Huffman (char* str) {
@@ -231,7 +243,6 @@ Huffman::Huffman (char* str) {
                         node_now->terminal_data()->level *= 10;
                         node_now->terminal_data()->level += (*str) - '0';
                     }
-                ++str;
                 node_now = this->root;
                 break;
             default:
@@ -288,269 +299,173 @@ void Huffman::triverse () {
     printf("Code\tType\tRun\tLevel\n");
     this->root->triverse(0);
 }
-
-char B12_str[] = "100         |3|0 |0|\
-                  00          |3|1 |0|\
-                  01          |3|2 |0|\
-                  101         |3|3 |0|\
-                  110         |3|4 |0|\
-                  1110        |3|5 |0|\
-                  1111 0      |3|6 |0|\
-                  1111 10     |3|7 |0|\
-                  1111 110    |3|8 |0|\
-                  1111 1110   |3|9 |0|\
-                  1111 1111 0 |3|10|0|\
-                  1111 1111 1 |3|11|0|";
-
-char B13_str[] = "00           |3|0 |0|\
-                  01           |3|1 |0|\
-                  10           |3|2 |0|\
-                  110          |3|3 |0|\
-                  1110         |3|4 |0|\
-                  1111 0       |3|5 |0|\
-                  1111 10      |3|6 |0|\
-                  1111 110     |3|7 |0|\
-                  1111 1110    |3|8 |0|\
-                  1111 1111 0  |3|9 |0|\
-                  1111 1111 10 |3|10|0|\
-                  1111 1111 11 |3|11|0|";
-
-char B14_str[] = "10                  |1|0 |0 |\
-                  11                  |0|0 |1 |\
-                  011                 |0|1 |1 |\
-                  0100                |0|0 |2 |\
-                  0101                |0|2 |1 |\
-                  0010 1              |0|0 |3 |\
-                  0011 1              |0|3 |1 |\
-                  0011 0              |0|4 |1 |\
-                  0001 10             |0|1 |2 |\
-                  0001 11             |0|5 |1 |\
-                  0001 01             |0|6 |1 |\
-                  0001 00             |0|7 |1 |\
-                  0000 110            |0|0 |4 |\
-                  0000 100            |0|2 |2 |\
-                  0000 111            |0|8 |1 |\
-                  0000 101            |0|9 |1 |\
-                  0000 01             |2|0 |0 |\
-                  0010 0110           |0|0 |5 |\
-                  0010 0001           |0|0 |6 |\
-                  0010 0101           |0|1 |3 |\
-                  0010 0100           |0|3 |2 |\
-                  0010 0111           |0|10|1 |\
-                  0010 0011           |0|11|1 |\
-                  0010 0010           |0|12|1 |\
-                  0010 0000           |0|13|1 |\
-                  0000 0010 10        |0|0 |7 |\
-                  0000 0011 00        |0|1 |4 |\
-                  0000 0010 11        |0|2 |3 |\
-                  0000 0011 11        |0|4 |2 |\
-                  0000 0010 01        |0|5 |2 |\
-                  0000 0011 10        |0|14|1 |\
-                  0000 0011 01        |0|15|1 |\
-                  0000 0010 00        |0|16|1 |\
-                  0000 0001 1101      |0|0 |8 |\
-                  0000 0001 1000      |0|0 |9 |\
-                  0000 0001 0011      |0|0 |10|\
-                  0000 0001 0000      |0|0 |11|\
-                  0000 0001 1011      |0|1 |5 |\
-                  0000 0001 0100      |0|2 |4 |\
-                  0000 0001 1100      |0|3 |3 |\
-                  0000 0001 0010      |0|4 |3 |\
-                  0000 0001 1110      |0|6 |2 |\
-                  0000 0001 0101      |0|7 |2 |\
-                  0000 0001 0001      |0|8 |2 |\
-                  0000 0001 1111      |0|17|1 |\
-                  0000 0001 1010      |0|18|1 |\
-                  0000 0001 1001      |0|19|1 |\
-                  0000 0001 0111      |0|20|1 |\
-                  0000 0001 0110      |0|21|1 |\
-                  0000 0000 1101 0    |0|0 |12|\
-                  0000 0000 1100 1    |0|0 |13|\
-                  0000 0000 1100 0    |0|0 |14|\
-                  0000 0000 1011 1    |0|0 |15|\
-                  0000 0000 1011 0    |0|1 |6 |\
-                  0000 0000 1010 1    |0|1 |7 |\
-                  0000 0000 1010 0    |0|2 |5 |\
-                  0000 0000 1001 1    |0|3 |4 |\
-                  0000 0000 1001 0    |0|5 |3 |\
-                  0000 0000 1000 1    |0|9 |2 |\
-                  0000 0000 1000 0    |0|10|2 |\
-                  0000 0000 1111 1    |0|22|1 |\
-                  0000 0000 1111 0    |0|23|1 |\
-                  0000 0000 1110 1    |0|24|1 |\
-                  0000 0000 1110 0    |0|25|1 |\
-                  0000 0000 1101 1    |0|26|1 |\
-                  0000 0000 0111 11   |0|0 |16|\
-                  0000 0000 0111 10   |0|0 |17|\
-                  0000 0000 0111 01   |0|0 |18|\
-                  0000 0000 0111 00   |0|0 |19|\
-                  0000 0000 0110 11   |0|0 |20|\
-                  0000 0000 0110 10   |0|0 |21|\
-                  0000 0000 0110 01   |0|0 |22|\
-                  0000 0000 0110 00   |0|0 |23|\
-                  0000 0000 0101 11   |0|0 |24|\
-                  0000 0000 0101 10   |0|0 |25|\
-                  0000 0000 0101 01   |0|0 |26|\
-                  0000 0000 0101 00   |0|0 |27|\
-                  0000 0000 0100 11   |0|0 |28|\
-                  0000 0000 0100 10   |0|0 |29|\
-                  0000 0000 0100 01   |0|0 |30|\
-                  0000 0000 0100 00   |0|0 |31|\
-                  0000 0000 0011 000  |0|0 |32|\
-                  0000 0000 0010 111  |0|0 |33|\
-                  0000 0000 0010 110  |0|0 |34|\
-                  0000 0000 0010 101  |0|0 |35|\
-                  0000 0000 0010 100  |0|0 |36|\
-                  0000 0000 0010 011  |0|0 |37|\
-                  0000 0000 0010 010  |0|0 |38|\
-                  0000 0000 0010 001  |0|0 |39|\
-                  0000 0000 0010 000  |0|0 |40|\
-                  0000 0000 0011 111  |0|1 |8 |\
-                  0000 0000 0011 110  |0|1 |9 |\
-                  0000 0000 0011 101  |0|1 |10|\
-                  0000 0000 0011 100  |0|1 |11|\
-                  0000 0000 0011 011  |0|1 |12|\
-                  0000 0000 0011 010  |0|1 |13|\
-                  0000 0000 0011 001  |0|1 |14|\
-                  0000 0000 0001 0011 |0|1 |15|\
-                  0000 0000 0001 0010 |0|1 |16|\
-                  0000 0000 0001 0001 |0|1 |17|\
-                  0000 0000 0001 0000 |0|1 |18|\
-                  0000 0000 0001 0100 |0|6 |3 |\
-                  0000 0000 0001 1010 |0|11|2 |\
-                  0000 0000 0001 1001 |0|12|2 |\
-                  0000 0000 0001 1000 |0|13|2 |\
-                  0000 0000 0001 0111 |0|14|2 |\
-                  0000 0000 0001 0110 |0|15|2 |\
-                  0000 0000 0001 0101 |0|16|2 |\
-                  0000 0000 0001 1111 |0|27|1 |\
-                  0000 0000 0001 1110 |0|28|1 |\
-                  0000 0000 0001 1101 |0|29|1 |\
-                  0000 0000 0001 1100 |0|30|1 |\
-                  0000 0000 0001 1011 |0|31|1 |";
-
-char B15_str[] = "0110                |1|0 |0 |\
-                  10                  |0|0 |1 |\
-                  010                 |0|1 |1 |\
-                  110                 |0|0 |2 |\
-                  0010 1              |0|2 |1 |\
-                  0111                |0|0 |3 |\
-                  0011 1              |0|3 |1 |\
-                  0001 10             |0|4 |1 |\
-                  0011 0              |0|1 |2 |\
-                  0001 11             |0|5 |1 |\
-                  0000 110            |0|6 |1 |\
-                  0000 100            |0|7 |1 |\
-                  1110 0              |0|0 |4 |\
-                  0000 111            |0|2 |2 |\
-                  0000 101            |0|8 |1 |\
-                  1111 000            |0|9 |1 |\
-                  0000 01             |2|0 |0 |\
-                  1110 1              |0|0 |5 |\
-                  0001 01             |0|0 |6 |\
-                  1111 001            |0|1 |3 |\
-                  0010 0110           |0|3 |2 |\
-                  1111 010            |0|10|1 |\
-                  0010 0001           |0|11|1 |\
-                  0010 0101           |0|12|1 |\
-                  0010 0100           |0|13|1 |\
-                  0001 00             |0|0 |7 |\
-                  0010 0111           |0|1 |4 |\
-                  1111 1100           |0|2 |3 |\
-                  1111 1101           |0|4 |2 |\
-                  0000 0010 0         |0|5 |2 |\
-                  0000 0010 1         |0|14|1 |\
-                  0000 0011 1         |0|15|1 |\
-                  0000 0011 01        |0|16|1 |\
-                  1111 011            |0|0 |8 |\
-                  1111 100            |0|0 |9 |\
-                  0010 0011           |0|0 |10|\
-                  0010 0010           |0|0 |11|\
-                  0010 0000           |0|1 |5 |\
-                  0000 0011 00        |0|2 |4 |\
-                  0000 0001 1100      |0|3 |3 |\
-                  0000 0001 0010      |0|4 |3 |\
-                  0000 0001 1110      |0|6 |2 |\
-                  0000 0001 0101      |0|7 |2 |\
-                  0000 0001 0001      |0|8 |2 |\
-                  0000 0001 1111      |0|17|1 |\
-                  0000 0001 1010      |0|18|1 |\
-                  0000 0001 1001      |0|19|1 |\
-                  0000 0001 0111      |0|20|1 |\
-                  0000 0001 0110      |0|21|1 |\
-                  1111 1010           |0|0 |12|\
-                  1111 1011           |0|0 |13|\
-                  1111 1110           |0|0 |14|\
-                  1111 1111           |0|0 |15|\
-                  0000 0000 1011 0    |0|1 |6 |\
-                  0000 0000 1010 1    |0|1 |7 |\
-                  0000 0000 1010 0    |0|2 |5 |\
-                  0000 0000 1001 1    |0|3 |4 |\
-                  0000 0000 1001 0    |0|5 |3 |\
-                  0000 0000 1000 1    |0|9 |2 |\
-                  0000 0000 1000 0    |0|10|2 |\
-                  0000 0000 1111 1    |0|22|1 |\
-                  0000 0000 1111 0    |0|23|1 |\
-                  0000 0000 1110 1    |0|24|1 |\
-                  0000 0000 1110 0    |0|25|1 |\
-                  0000 0000 1101 1    |0|26|1 |\
-                  0000 0000 0111 11   |0|0 |16|\
-                  0000 0000 0111 10   |0|0 |17|\
-                  0000 0000 0111 01   |0|0 |18|\
-                  0000 0000 0111 00   |0|0 |19|\
-                  0000 0000 0110 11   |0|0 |20|\
-                  0000 0000 0110 10   |0|0 |21|\
-                  0000 0000 0110 01   |0|0 |22|\
-                  0000 0000 0110 00   |0|0 |23|\
-                  0000 0000 0101 11   |0|0 |24|\
-                  0000 0000 0101 10   |0|0 |25|\
-                  0000 0000 0101 01   |0|0 |26|\
-                  0000 0000 0101 00   |0|0 |27|\
-                  0000 0000 0100 11   |0|0 |28|\
-                  0000 0000 0100 10   |0|0 |29|\
-                  0000 0000 0100 01   |0|0 |30|\
-                  0000 0000 0100 00   |0|0 |31|\
-                  0000 0000 0011 000  |0|0 |32|\
-                  0000 0000 0010 111  |0|0 |33|\
-                  0000 0000 0010 110  |0|0 |34|\
-                  0000 0000 0010 101  |0|0 |35|\
-                  0000 0000 0010 100  |0|0 |36|\
-                  0000 0000 0010 011  |0|0 |37|\
-                  0000 0000 0010 010  |0|0 |38|\
-                  0000 0000 0010 001  |0|0 |39|\
-                  0000 0000 0010 000  |0|0 |40|\
-                  0000 0000 0011 111  |0|1 |8 |\
-                  0000 0000 0011 110  |0|1 |9 |\
-                  0000 0000 0011 101  |0|1 |10|\
-                  0000 0000 0011 100  |0|1 |11|\
-                  0000 0000 0011 011  |0|1 |12|\
-                  0000 0000 0011 010  |0|1 |13|\
-                  0000 0000 0011 001  |0|1 |14|\
-                  0000 0000 0001 0011 |0|1 |15|\
-                  0000 0000 0001 0010 |0|1 |16|\
-                  0000 0000 0001 0001 |0|1 |17|\
-                  0000 0000 0001 0000 |0|1 |18|\
-                  0000 0000 0001 0100 |0|6 |3 |\
-                  0000 0000 0001 1010 |0|11|2 |\
-                  0000 0000 0001 1001 |0|12|2 |\
-                  0000 0000 0001 1000 |0|13|2 |\
-                  0000 0000 0001 0111 |0|14|2 |\
-                  0000 0000 0001 0110 |0|15|2 |\
-                  0000 0000 0001 0101 |0|16|2 |\
-                  0000 0000 0001 1111 |0|27|1 |\
-                  0000 0000 0001 1110 |0|28|1 |\
-                  0000 0000 0001 1101 |0|29|1 |\
-                  0000 0000 0001 1100 |0|30|1 |\
-                  0000 0000 0001 1011 |0|31|1 |";
 //=====================================================
+class Seq_header {
+    public:
+        Seq_header (Stream* vs);
+        void read_ext (Stream* vs);
+        void read_dsp (Stream* vs);
+        void print ();
+        u16 horz_size;
+        u16 vert_size;
+        u16 aspect_ratio;
+        u16 frame_rate_code;
+        u32 bit_rate;
+        u16 vbv_buf_size;
+        u8  intra_q[64];
+        u8  inter_q[64];
+        // Ext
+        u8  profil_level_id;
+        u8  progressive_seq;
+        u8  chroma_format;
+        u8  low_delay;
+        // Ext Display
+        u8  video_format;
+        u8  colour_discription;
+        u8  colour_primaries;
+        u8  transfer_characteristics;
+        u8  matrix_coefficients;
+        u8  display_horz_size;
+        u8  display_vert_size;
+};
+
+Seq_header::Seq_header (Stream* vs) {
+    check(vs->now_start_code() == SCODE_SEQ, "Not on sequence start header");
+    this->horz_size       = vs->read(12);
+    this->vert_size       = vs->read(12);
+    this->aspect_ratio    = vs->read(4);
+    this->frame_rate_code = vs->read(4);
+    this->bit_rate        = vs->read(18);
+    /* marker bit */        vs->read(1);
+    this->vbv_buf_size    = vs->read(10);
+    if (vs->read(1))
+        for (int i = 0; i < 64; ++i)
+            this->intra_q[i] = vs->read_u8();
+    else
+        for (int i = 0; i < 64; ++i)
+            this->intra_q[i] = default_intra_q[i];
+    if (vs->read(1))
+        for (int i = 0; i < 64; ++i)
+            this->inter_q[i] = vs->read_u8();
+    else
+        for (int i = 0; i < 64; ++i)
+            this->inter_q[i] = default_inter_q[i];
+}
+
+void Seq_header::read_ext (Stream* vs) {
+    check(vs->now_start_code() == SCODE_EXT, "Not on sequence start header");
+    check(vs->now_ext_code() == ECODE_SEQ_EXT, "Not on ext sequence ext code");
+    this->profil_level_id = vs->read(8);
+    this->progressive_seq = vs->read(1);
+    this->chroma_format   = vs->read(2);
+    this->horz_size      += vs->read(2) << 12;
+    this->vert_size      += vs->read(2) << 12;
+    this->bit_rate       += vs->read(12) << 18;
+    /* marker bit */        vs->read(1);
+    this->vbv_buf_size   += vs->read(8) << 8;
+    this->low_delay       = vs->read(1);
+    /* frame rate ext n*/   vs->read(2);
+    /* frame rate ext d*/   vs->read(5);
+    /* Both 0 in main profile*/
+    //check(this->progressive_seq, "Not a progressive sequence");
+    check(this->chroma_format == 1, "Not chroma format 420");
+}
+
+void Seq_header::read_dsp (Stream* vs) {
+    check(vs->now_start_code() == SCODE_EXT, "Not on sequence start header");
+    check(vs->now_ext_code() == ECODE_SEQ_DSP, "Not on ext sequence dsp code");
+    this->video_format                 = vs->read(3);
+    this->colour_discription           = vs->read(1);
+    if (this->colour_discription) {
+        this->colour_primaries         = vs->read(8);
+        this->transfer_characteristics = vs->read(8);
+        this->matrix_coefficients      = vs->read(8);
+    }
+    this->display_horz_size            = vs->read(14);
+    /* marker bit */                     vs->read(1);
+    this->display_vert_size            = vs->read(14);
+}
+
+void Seq_header::print () {
+    printf("=================================================\n");
+    printf("Horizontal size  : %d\n", this->horz_size);
+    printf("Vertical size    : %d\n", this->vert_size);
+    printf("Aspect ratio     : %d\n", this->aspect_ratio);
+    printf("Frame rate code  : %d\n", this->frame_rate_code);
+    printf("Bit rate         : %d\n", this->bit_rate);
+    printf("VBV buf size     : %d\n", this->vbv_buf_size);
+    printf("Intra quantizer  :");
+    for (int i = 0; i < 8; ++i) {
+        if (i)
+            printf("                  ");
+        for (int j = 0; j < 8; ++j)
+            printf("%2d ", this->intra_q[idx(i, j)]);
+        printf("\n");
+    }
+    printf("Inter quantizer  :");
+    for (int i = 0; i < 8; ++i) {
+        if (i)
+            printf("                  ");
+        for (int j = 0; j < 8; ++j)
+            printf("%2d ", this->inter_q[idx(i, j)]);
+        printf("\n");
+    }
+    printf("Extension\n");
+    printf("Profile level id : %d\n", this->profil_level_id);
+    printf("Progressive seq  : %d\n", this->progressive_seq);
+    printf("Chroma format    : %d\n", this->chroma_format);
+    printf("Low delay        : %d\n", this->low_delay);
+    printf("Display Extension\n");
+    printf("Video format     : %d\n", this->video_format);
+    printf("Colour Discriptio: %d\n", this->colour_discription);
+    printf("Colour Primaries : %d\n", this->colour_primaries);
+    printf("Transfer Charact : %d\n", this->transfer_characteristics);
+    printf("Matrix_coefficie : %d\n", this->matrix_coefficients);
+    printf("Display horz size: %d\n", this->display_horz_size);
+    printf("Display vert size: %d\n", this->display_vert_size);
+    printf("=================================================\n");
+}
 
 int main (int argc, char* argv[]) {
     check(argc == 2, "Wrong parameters");
-    Stream vs(argv[1]);
+    Stream* vs = new Stream(argv[1]);
+    Seq_header* seq_header;
+
     u8 start_code;
+    u8 pre_start_code;
     while (1) {
-        u8 start_code = vs.next_start_code();
-        printf("%x\n", start_code);
+        start_code = vs->next_start_code();
+        printf("Start Code: %x\n", start_code);
+        switch (start_code) {
+            case SCODE_SEQ:
+                seq_header = new Seq_header(vs);
+                pre_start_code = start_code;
+                break;
+            case SCODE_USR:
+                /* DO NOTHING*/
+                break;
+            case SCODE_EXT:
+                printf("  Ext Code: %d\n", vs->now_ext_code());
+                if (pre_start_code == SCODE_SEQ)
+                    switch (vs->now_ext_code()) {
+                        case ECODE_SEQ_EXT:
+                            seq_header->read_ext(vs);
+                            break;
+                        case ECODE_SEQ_DSP:
+                            seq_header->read_dsp(vs);
+                            seq_header->print();
+                            break;
+                        default:
+                            check(0, "Wrong ext code after sequence header");
+                    }
+                break;
+            case SCODE_END:
+                printf("End of sequence\n");
+                break;
+            case SCODE_PIC:
+            case SCODE_GOP:
+                break;
+        }
         if (start_code == 0x01)
             // TO FIREST SLICE
             break;
@@ -565,17 +480,62 @@ int main (int argc, char* argv[]) {
     Huffman B13(B13_str);
     Huffman B14(B14_str);
     Huffman B15(B15_str);
+    Huffman B1(B1_str);
+    Huffman B2(B2_str);
     //B12.triverse();
     //B13.triverse();
     //B14.triverse();
     //B15.triverse();
-    //u8 quantiser_scale_code = vs.read(5);
-    //if (vs.read(1)) {
-        //vs.read(9);
-        //while (vs.read(1))
-            //vs.read(8);
-    //}
-    //u8 mb_row = start_row - 1;
+    u8 quantiser_scale_code = vs->read(5);
+    if (vs->read(1)) {
+        vs->read(9);
+        while (vs->read(1))
+            vs->read(8);
+    }
+    u8 mb_row = start_code - 1;
     // End OF Slice Header
+    B1.get(vs, false);
+    printf("MB Address Increase: %d\n", B1.run);
+    // B2 for I-picture
+    B2.get(vs, false);
+    u8 mb_quant    = (B2.run >> 6) & 1;
+    u8 mb_motion_f = (B2.run >> 5) & 1;
+    u8 mb_motion_b = (B2.run >> 4) & 1;
+    u8 mb_pattern  = (B2.run >> 3) & 1;
+    u8 mb_intra    = (B2.run >> 2) & 1;
+    u8 stwcf       = (B2.run >> 1) & 1; // This two always zero
+    u8 p_stwc      = (B2.run >> 0) & 1; // in non scalable mode
+    printf("MB Type: %d\n", B2.run);
+    if (mb_motion_f || mb_motion_b)
+        u8 motion_type = vs->read(2);
+        // NO motion in I frame
+    // What is frame_pred_frame_dct = =
+    u8 dct_type = vs->read(1);
+    printf("%d\n", dct_type);
+    // Read motion
+    // SKIP
+    vs->read(1); //marker bit
+    // Start of BLOCK1
+    // 4:2:0
+    for (int i = 0; i < 4; ++i) {
+        B12.get(vs, false);
+        printf("%d\n", B12.level);
+        while (1) {
+            B14.get(vs, false);
+            printf("%d %d %d\n", B14.type, B14.run, B14.level);
+            if (B14.type == HUFFMAN_CODE_END)
+                break;
+        }
+    }
+    for (int i = 0; i < 2; ++i) {
+        B13.get(vs, false);
+        printf("%d\n", B12.level);
+        while (1) {
+            B14.get(vs, false);
+            printf("%d %d %d\n", B14.type, B14.run, B14.level);
+            if (B14.type == HUFFMAN_CODE_END)
+                break;
+    }
+    }
 }
 
