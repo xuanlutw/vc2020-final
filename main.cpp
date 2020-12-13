@@ -300,6 +300,7 @@ void Huffman::triverse () {
     this->root->triverse(0);
 }
 //=====================================================
+
 class Seq_header {
     public:
         Seq_header (Stream* vs);
@@ -425,11 +426,161 @@ void Seq_header::print () {
     printf("Display vert size: %d\n", this->display_vert_size);
     printf("=================================================\n");
 }
+//=====================================================
+
+class Gop_header {
+    public:
+        Gop_header (Stream* vs);
+        void print ();
+        u8 drop_frame_flag;
+        u8 hour;
+        u8 min;
+        u8 sec;
+        u8 pic;
+        u8 closed_gop;
+        u8 broken_link;
+};
+
+Gop_header::Gop_header (Stream* vs) {
+    this->drop_frame_flag = vs->read(1);
+    this->hour            = vs->read(5);
+    this->min             = vs->read(6);
+    /* marker bit */        vs->read(1);
+    this->sec             = vs->read(6);
+    this->pic             = vs->read(6);
+    this->closed_gop      = vs->read(1);
+    this->broken_link     = vs->read(1);
+}
+
+void Gop_header::print () {
+    printf("=================================================\n");
+    printf("Drop Frame Flag : %d\n", this->drop_frame_flag);
+    printf("Time            : %d:%d:%d-%d\n", this->hour, this->min, this->sec, this->pic);
+    printf("Closed gop      : %d\n", this->closed_gop);
+    printf("Broken link     : %d\n", this->broken_link);
+    printf("=================================================\n");
+}
+//=====================================================
+
+class Picture {
+    public:
+        Picture (Stream* vs);
+        void read_ext (Stream* vs);
+        void print ();
+        void read_slice (Stream* vs, Seq_header* seq);
+        // Header
+        u16 temp_ref;
+        u8  type;
+        u16 vbv_delay;
+        u8  full_pel_forw_v; /* NOT */
+        u8  forw_f_code;     /*  |  */
+        u8  full_pel_back_v; /*  |  */
+        u8  back_f_code;     /* USE */
+        // Ext
+        u8  fcode_forw_horz;
+        u8  fcode_forw_vert;
+        u8  fcode_back_horz;
+        u8  fcode_back_vert;
+        u8  intra_dc_prec;
+        u8  pic_structure;
+        u8  top_field_first;
+        u8  frame_pred_frame_dct;
+        u8  concealment_mv;
+        u8  q_scale_type;
+        u8  intra_vlc_format;
+        u8  alternate_scan;
+        u8  repeat_first_field;
+        u8  chroma_420_type;
+        u8  progressive_frame;
+        u8  composite_dsp_flag;
+        u8  v_axis;
+        u8  field_seq;
+        u8  sub_carrier;
+        u8  burst_amplitude;
+        u8  sub_carrier_phase;
+};
+
+Picture::Picture (Stream* vs) {
+    this->temp_ref            = vs->read(10);
+    this->type                = vs->read(3);
+    this->vbv_delay           = vs->read(16);
+    if (this->type == PIC_TYPE_P || this->type == PIC_TYPE_B) {
+        this->full_pel_forw_v = vs->read(1);
+        this->forw_f_code     = vs->read(3);
+    }
+    if (this->type == PIC_TYPE_B) {
+        this->full_pel_back_v = vs->read(1);
+        this->back_f_code     = vs->read(3);
+    }
+    while (vs->read(1)) // Remove Extra Info
+        vs->read_u8();
+    //check(this->type == PIC_TYPE_I || \
+            //this->type == PIC_TYPE_P || \
+            //this->type == PIC_TYPE_B, "Wrong picture type");
+}
+
+void Picture::read_ext (Stream* vs) {
+    this->fcode_forw_horz       = vs->read(4);
+    this->fcode_forw_vert       = vs->read(4);
+    this->fcode_back_horz       = vs->read(4);
+    this->fcode_back_vert       = vs->read(4);
+    this->intra_dc_prec         = vs->read(2) + 8;
+    this->pic_structure         = vs->read(2);
+    this->top_field_first       = vs->read(1);
+    this->frame_pred_frame_dct  = vs->read(1);
+    this->concealment_mv        = vs->read(1);
+    this->q_scale_type          = vs->read(1);
+    this->intra_vlc_format      = vs->read(1);
+    this->alternate_scan        = vs->read(1);
+    this->repeat_first_field    = vs->read(1);
+    this->chroma_420_type       = vs->read(1);
+    this->progressive_frame     = vs->read(1);
+    this->composite_dsp_flag    = vs->read(1);
+    if (this->composite_dsp_flag) {
+        this->v_axis            = vs->read(1);
+        this->field_seq         = vs->read(3);
+        this->sub_carrier       = vs->read(1);
+        this->burst_amplitude   = vs->read(7);
+        this->sub_carrier_phase = vs->read(8);
+    }
+}
+
+void Picture::print () {
+    printf("=================================================\n");
+    printf("Temp ref        : %d\n", this->temp_ref);
+    printf("Type            : %d\n", this->type);
+    printf("VBV delay       : %d\n", this->vbv_delay);
+    printf("Full pel forw v : %d\n", this->full_pel_forw_v);
+    printf("Forw f code     : %d\n", this->forw_f_code);
+    printf("Full pel back v : %d\n", this->full_pel_back_v);
+    printf("Back f code     : %d\n", this->back_f_code);
+    printf("Extension\n");
+    printf("Fcode forw horz      : %d\n", this->fcode_forw_horz     );
+    printf("Fcode forw vert      : %d\n", this->fcode_forw_vert     );
+    printf("Fcode back horz      : %d\n", this->fcode_back_horz     );
+    printf("Fcode back vert      : %d\n", this->fcode_back_vert     );
+    printf("Intra dc prec        : %d\n", this->intra_dc_prec       );
+    printf("Pic structure        : %d\n", this->pic_structure       );
+    printf("Top field first      : %d\n", this->top_field_first     );
+    printf("Frame pred frame dct : %d\n", this->frame_pred_frame_dct);
+    printf("Concealment mv       : %d\n", this->concealment_mv      );
+    printf("Q scale type         : %d\n", this->q_scale_type        );
+    printf("Intra vlc format     : %d\n", this->intra_vlc_format    );
+    printf("Alternate scan       : %d\n", this->alternate_scan      );
+    printf("Repeat first field   : %d\n", this->repeat_first_field  );
+    printf("Chroma 420 type      : %d\n", this->chroma_420_type     );
+    printf("Progressive frame    : %d\n", this->progressive_frame   );
+    printf("Composite dsp flag   : %d\n", this->composite_dsp_flag  );
+    printf("=================================================\n");
+}
+//=====================================================
 
 int main (int argc, char* argv[]) {
     check(argc == 2, "Wrong parameters");
     Stream* vs = new Stream(argv[1]);
     Seq_header* seq_header;
+    Gop_header* gop_header;
+    Picture*    picture;
 
     u8 start_code;
     u8 pre_start_code;
@@ -439,33 +590,53 @@ int main (int argc, char* argv[]) {
         switch (start_code) {
             case SCODE_SEQ:
                 seq_header = new Seq_header(vs);
-                pre_start_code = start_code;
                 break;
             case SCODE_USR:
                 /* DO NOTHING*/
                 break;
             case SCODE_EXT:
                 printf("  Ext Code: %d\n", vs->now_ext_code());
-                if (pre_start_code == SCODE_SEQ)
-                    switch (vs->now_ext_code()) {
-                        case ECODE_SEQ_EXT:
-                            seq_header->read_ext(vs);
-                            break;
-                        case ECODE_SEQ_DSP:
-                            seq_header->read_dsp(vs);
-                            seq_header->print();
-                            break;
-                        default:
-                            check(0, "Wrong ext code after sequence header");
-                    }
+                switch (pre_start_code) {
+                    case SCODE_SEQ:
+                        switch (vs->now_ext_code()) {
+                            case ECODE_SEQ_EXT:
+                                seq_header->read_ext(vs);
+                                seq_header->print();
+                                break;
+                            case ECODE_SEQ_DSP:
+                                seq_header->read_dsp(vs);
+                                break;
+                            default:
+                                check(0, "Wrong ext code after sequence header");
+                        }
+                        break;
+                    case SCODE_PIC:
+                        switch (vs->now_ext_code()) {
+                            case ECODE_PIC_EXT:
+                                picture->read_ext(vs);
+                                picture->print();
+                                break;
+                            default:
+                                check(0, "Wrong ext code after sequence header");
+                        }
+                        break;
+                    default:
+                        check(pre_start_code > 0xb8, "Wrong pre start header");
+                }
+                break;
+            case SCODE_GOP:
+                gop_header = new Gop_header(vs);
+                gop_header->print();
+                break;
+            case SCODE_PIC:
+                picture = new Picture(vs);
                 break;
             case SCODE_END:
                 printf("End of sequence\n");
                 break;
-            case SCODE_PIC:
-            case SCODE_GOP:
-                break;
         }
+        if (start_code != SCODE_EXT && start_code != SCODE_USR) 
+            pre_start_code = start_code;
         if (start_code == 0x01)
             // TO FIREST SLICE
             break;

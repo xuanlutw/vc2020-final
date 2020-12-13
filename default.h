@@ -330,8 +330,15 @@ u8 default_inter_q[64] = {16, 16, 16, 16, 16, 16, 16, 16, \
 #define ECODE_SEQ_SCA  0x5 // Should NOT be used
 #define ECODE_PIC_Q    0x3
 #define ECODE_PIC_DSP  0x7
-#define ECODE_PIC_COD  0x8
+#define ECODE_PIC_EXT  0x8
 #define ECODE_PIC_SSCA 0x9 // Should NOT be used
 #define ECODE_PIC_TSCA 0xA // Should NOT be used
 
+#define PIC_TYPE_I 0x01
+#define PIC_TYPE_P 0x02
+#define PIC_TYPE_B 0x03
+
+#define PIC_STRUCT_T 0x01
+#define PIC_STRUCT_B 0x02
+#define PIC_STRUCT_F 0x03
 #define idx(i, j) (8 * (i) + (j))
