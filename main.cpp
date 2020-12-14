@@ -63,43 +63,32 @@ Stream::~Stream() {
 
 void Stream::read_buf () {
     u8 c;
-    while (1) {
-        if (this->depes_buf_len == 32) {
-            if (this->depes_buf == 0x000001e0) {
-                // FLUSH
-                this->depes_buf_len = 0;
-                check(fread(&c, sizeof(u8), 1, this->fp), "Reach EOF");
-                printf("|%x\n", c);
-                check(fread(&c, sizeof(u8), 1, this->fp), "Reach EOF");
-                printf("|%x\n", c);
-                check(fread(&c, sizeof(u8), 1, this->fp), "Reach EOF");
-                printf("|%x\n", c);
-                //check(fread(&c, sizeof(u8), 1, this->fp), "Reach EOF");
-                //printf("|%x\n", c);
-                //this->depes_buf_len = 8;
-                //this->depes_buf     = c;
-                //check(fread(&c, sizeof(u8), 1, this->fp), "Reach EOF");
-                //printf("|%x\n", c);
-                //this->depes_buf_len = 16;
-                //this->depes_buf     <<= 8;
-                //this->depes_buf     += c;
+    // To handle PES, not use now
+    //while (1) {
+        //if (this->depes_buf_len == 32) {
+            //if (this->depes_buf == 0x000001e0) {
+                //// FLUSH
+                //this->depes_buf_len = 0;
+                //this->depes_buf     = 0;
                 //check(fread(&c, sizeof(u8), 1, this->fp), "Reach EOF");
                 //printf("|%x\n", c);
                 //check(fread(&c, sizeof(u8), 1, this->fp), "Reach EOF");
                 //printf("|%x\n", c);
-            }
-            else
-                break;
-        }
-        else {
-            check(fread(&c, sizeof(u8), 1, this->fp), "Reach EOF");
-            this->depes_buf    <<= 8;
-            this->depes_buf     += c;
-            this->depes_buf_len += 8;
-        }
-    }
-    c = (this->depes_buf >> 24) & 0xff;
-    //check(fread(&c, sizeof(u8), 1, this->fp), "Reach EOF");
+                //check(fread(&c, sizeof(u8), 1, this->fp), "Reach EOF");
+                //printf("|%x\n", c);
+            //}
+            //else
+                //break;
+        //}
+        //else {
+            //check(fread(&c, sizeof(u8), 1, this->fp), "Reach EOF");
+            //this->depes_buf    <<= 8;
+            //this->depes_buf     += c;
+            //this->depes_buf_len += 8;
+        //}
+    //}
+    //c = (this->depes_buf >> 24) & 0xff;
+    check(fread(&c, sizeof(u8), 1, this->fp), "Reach EOF");
     this->depes_buf_len -= 8;
     this->buf          <<= 8;
     this->buf           += c;
@@ -258,19 +247,25 @@ void H_node::triverse (u32 prefix) {
 
 class Huffman {
     public:
-        Huffman (char* str);
+        Huffman (char* str, bool is_B14);
         void triverse ();
-        void get (Stream* vc, bool fB14DC);
+        void get (Stream* vc);
+        void set_is_DC();
         u8  type;
         u8  run;
         i16 level;
     private:
         H_node* root;
+        bool is_B14;
+        bool is_DC;
 };
 
-Huffman::Huffman (char* str) {
+Huffman::Huffman (char* str, bool is_B14) {
+    this->is_B14 = is_B14;
+    this->is_DC  = false;
     this->root = new H_node();
     H_node* node_now = this->root;
+    u8 sign;
     for (; *str; ++str)
         switch (*str) {
             case ' ':
@@ -291,12 +286,18 @@ Huffman::Huffman (char* str) {
                 node_now->terminal_data()->type = (*str) - '0';
                 ++str;
                 ++str;
+                // Run, may be negative
+                sign = 1;
                 for (; *str != '|'; ++str) 
-                    if (*str != ' ') {
+                    if (*str == '-')
+                        sign = -1;
+                    else if (*str != ' ') {
                         node_now->terminal_data()->run *= 10;
                         node_now->terminal_data()->run += (*str) - '0';
                     }
+                node_now->terminal_data()->run *= sign;
                 ++str;
+                // Level
                 for (; *str != '|'; ++str)
                     if (*str != ' ') {
                         node_now->terminal_data()->level *= 10;
@@ -309,7 +310,7 @@ Huffman::Huffman (char* str) {
     }
 }
 
-void Huffman::get (Stream* vs, bool fB14DC) {
+void Huffman::get (Stream* vs) {
     H_node* node_now = this->root;
     u8 tmp;
     while (1) {
@@ -336,16 +337,19 @@ void Huffman::get (Stream* vs, bool fB14DC) {
                     }
                     break;
             }
+            this->is_DC  = false;
             return;
         }
         tmp = vs->read(1);
         if (tmp) {
             check((H_node*)node_now->pos, "Wrong Huffman code");
-            if (fB14DC && node_now == this->root) {
+            if (this->is_B14 && this->is_DC && node_now == this->root) {
                 check((H_node*)((H_node*)node_now->pos)->pos, "Wrong Huffman code");
                 node_now = (H_node*)((H_node*)node_now->pos)->pos;
             }
-            node_now = (H_node*)node_now->pos;
+            else {
+                node_now = (H_node*)node_now->pos;
+            }
         }
         else {
             check((H_node*)node_now->neg, "Wrong Huffman code");
@@ -354,17 +358,27 @@ void Huffman::get (Stream* vs, bool fB14DC) {
     }
 }
 
+void Huffman::set_is_DC () {
+    // Only work next get()
+    this->is_DC = true;
+}
+
 void Huffman::triverse () {
     printf("Code\tType\tRun\tLevel\n");
     this->root->triverse(0);
 }
 
-Huffman B12(B12_str);
-Huffman B13(B13_str);
-Huffman B14(B14_str);
-Huffman B15(B15_str);
-Huffman B1(B1_str);
-Huffman B2(B2_str);
+Huffman B1(B1_str, false);
+Huffman B2(B2_str, false);
+Huffman B3(B3_str, false);
+Huffman B4(B4_str, false);
+Huffman B9(B9_str, false);
+Huffman B10(B10_str, false);
+Huffman B11(B11_str, false);
+Huffman B12(B12_str, false);
+Huffman B13(B13_str, false);
+Huffman B14(B14_str, true);
+Huffman B15(B15_str, false);
 //=====================================================
 
 class Seq_header {
@@ -546,32 +560,46 @@ Block::Block (Stream* vs, i16 pre_dc_coeff, Huffman* DC, Huffman* AC, u8* quant,
     for (int i = 0; i < 64; ++i)
         data[i] = 0;
 
-    // Read DC coeff
-    DC->get(vs, false);
-    //printf("DC: %d %d %d\n", DC->type, DC->run, DC->level);
-    data[0] = pre_dc_coeff + DC->level;
-    this->dc_coeff = data[0];
+    if (AC) { // Intra
+        // Read DC coeff
+        DC->get(vs);
+        //printf("DC: %d %d %d\n", DC->type, DC->run, DC->level);
+        data[0] = pre_dc_coeff + DC->level;
+        this->dc_coeff = data[0];
 
-    // Read AC coeff
-    for (int i = 1; i < 64; ++i) {
-        AC->get(vs, false);
-        //printf("%d %d %d\n", AC->type, AC->run, AC->level);
-        if (AC->type == HUFFMAN_CODE_END)
-            break;
-        else {
-            i += AC->run;
-            data[i] = AC->level;
+        // Read AC coeff
+        for (int i = 1; i < 64; ++i) {
+            AC->get(vs);
+            //printf("%d %d %d\n", AC->type, AC->run, AC->level);
+            if (AC->type == HUFFMAN_CODE_END)
+                break;
+            else {
+                i += AC->run;
+                data[i] = AC->level;
+            }
         }
     }
+    else {
+        // Read ALL coeff
+        DC->set_is_DC();
+        for (int i = 0; i < 64; ++i) {
+            DC->get(vs);
+            if (DC->type == HUFFMAN_CODE_END)
+                break;
+            else {
+                i += DC->run;
+                data[i] = DC->level;
+            }
+        }
+        intra_dc_prec = 0;
+    }
+
     //printf("Block Start\n");
     //this->print();
-
     this->inverse_scan();
     //this->print();
-    
     this->inverse_q(quant, intra_dc_prec, q_scale_type, q_scale_code);
     //this->print();
-
     this->inverse_DCT();
     //this->print();
     //exit(-1);
@@ -717,10 +745,7 @@ class Picture {
         u8  full_pel_back_v; /*  |  */
         u8  back_f_code;     /* USE */
         // Ext
-        u8  fcode_forw_horz;
-        u8  fcode_forw_vert;
-        u8  fcode_back_horz;
-        u8  fcode_back_vert;
+        u8  f_code[2][2];
         u8  intra_dc_prec;
         u8  pic_structure;
         u8  top_field_first;
@@ -756,6 +781,16 @@ class Picture {
         u8  mb_decode_dct_type;
         u8  mb_dct_type;
         u8  mb_q_scale_code;
+        u8  mb_motion_type;
+        u8  mb_pattern_code;
+        u8  mb_mv_count;
+        u8  mb_dmv;
+        u8  mb_mv_field_select[2][2];
+        u8  mb_mv_code[2][2][2];
+        u8  mb_m_residular[2][2][2];
+        u8  mb_dmvector[2];
+        void read_mvs (Stream* vs, u8 s);
+        void read_mv  (Stream* vs, u8 r, u8 s);
         // Block
         i16 pre_dc_coeff[3];
         void reset_pre_dc_coeff();
@@ -781,8 +816,8 @@ Picture::Picture (Stream* vs, Seq_header* seq) {
             this->type == PIC_TYPE_B, "Wrong picture type %d", this->type);
 
     // Init pixels
-    this->horz_size = seq->horz_size; 
-    this->vert_size = seq->vert_size;
+    this->horz_size = ((seq->horz_size + 15) / 16) * 16; 
+    this->vert_size = ((seq->vert_size + 15) / 16) * 16;
     this->intra_q   = seq->intra_q;
     this->inter_q   = seq->inter_q;
     this->pixel[0] = new i16[this->horz_size * this->vert_size];
@@ -793,10 +828,10 @@ Picture::Picture (Stream* vs, Seq_header* seq) {
 }
 
 void Picture::read_ext (Stream* vs) {
-    this->fcode_forw_horz       = vs->read(4);
-    this->fcode_forw_vert       = vs->read(4);
-    this->fcode_back_horz       = vs->read(4);
-    this->fcode_back_vert       = vs->read(4);
+    this->f_code[0][0]          = vs->read(4);
+    this->f_code[0][1]          = vs->read(4);
+    this->f_code[1][0]          = vs->read(4);
+    this->f_code[1][1]          = vs->read(4);
     this->intra_dc_prec         = vs->read(2) + 8;
     this->pic_structure         = vs->read(2);
     this->top_field_first       = vs->read(1);
@@ -816,6 +851,7 @@ void Picture::read_ext (Stream* vs) {
         this->burst_amplitude   = vs->read(7);
         this->sub_carrier_phase = vs->read(8);
     }
+    check(this->pic_structure == PIC_STRUCT_F, "Not a frame picture");
 }
 
 void Picture::print () {
@@ -828,10 +864,10 @@ void Picture::print () {
     printf("Full pel back v : %d\n", this->full_pel_back_v);
     printf("Back f code     : %d\n", this->back_f_code);
     printf("Extension\n");
-    printf("Fcode forw horz      : %d\n", this->fcode_forw_horz     );
-    printf("Fcode forw vert      : %d\n", this->fcode_forw_vert     );
-    printf("Fcode back horz      : %d\n", this->fcode_back_horz     );
-    printf("Fcode back vert      : %d\n", this->fcode_back_vert     );
+    printf("Fcode forw horz      : %d\n", this->f_code[0][0]        );
+    printf("Fcode forw vert      : %d\n", this->f_code[0][1]        );
+    printf("Fcode back horz      : %d\n", this->f_code[1][0]        );
+    printf("Fcode back vert      : %d\n", this->f_code[1][1]        );
     printf("Intra dc prec        : %d\n", this->intra_dc_prec       );
     printf("Pic structure        : %d\n", this->pic_structure       );
     printf("Top field first      : %d\n", this->top_field_first     );
@@ -872,7 +908,7 @@ void Picture::read_slice (Stream* vs) {
 
 void Picture::read_mb (Stream* vs) {
     // Read Address Increasing
-    B1.get(vs, false);
+    B1.get(vs);
     //printf("MB Address Increase: %d\n", B1.run);
     this-> mb_col += B1.run;
     if (B1.run == MB_ESCAPE) {
@@ -887,12 +923,17 @@ void Picture::read_mb (Stream* vs) {
     // Read MB Modes
     switch (this->type) {
         case PIC_TYPE_I:
-            B2.get(vs, false);
+            B2.get(vs);
             this->mb_mode = B2.run;
             break;
         case PIC_TYPE_P:
+            B3.get(vs);
+            this->mb_mode = B3.run;
+            break;
         case PIC_TYPE_B:
-            // Wait For B3 B4
+            B4.get(vs);
+            this->mb_mode = B4.run;
+            break;
             break;
     }
     this->mb_quant    = (this->mb_mode >> 6) & 1;
@@ -902,50 +943,69 @@ void Picture::read_mb (Stream* vs) {
     this->mb_intra    = (this->mb_mode >> 2) & 1;
     this->mb_stwcf    = (this->mb_mode >> 1) & 1; // This two always zero
     this->mb_p_stwc   = (this->mb_mode >> 0) & 1; // in non scalable mode
-    //printf("MB Type: %d\n", this->mb_mode);
-    //if (this->mb_motion_f || this->mb_motion_b)
-        //u8 motion_type = vs->read(2); // Read Motion Type, Skip
+    printf("MB Type: %d\n", this->mb_mode);
+    if (!this->mb_intra)
+        this->reset_pre_dc_coeff();
+
+    // Read MV info, Only support frame pred now
+    if (this->mb_motion_f || this->mb_motion_b) {
+        if (this->frame_pred_frame_dct == 0)
+            this->mb_motion_type = vs->read(2);
+        else
+            // Default, pp. 63
+            this->mb_motion_type = 2;
+    }
+    this->mb_mv_count = 1; // Frame & Non scalable
+    this->mb_dmv      = (this->mb_motion_type == 3);
+
     this->mb_decode_dct_type = (this->pic_structure == PIC_STRUCT_F) && \
                                (this->frame_pred_frame_dct == 0) && \
                                (this->mb_intra || this->mb_pattern);
     if (this->mb_decode_dct_type) // Read decode dct type
         this->mb_dct_type    = vs->read(1); 
     //printf("mb dct %d %d\n", this->mb_decode_dct_type, this->mb_dct_type);
-    if (!this->mb_intra)
-        this->reset_pre_dc_coeff();
 
     // Read MB Q scale code
     if (this->mb_quant)
         mb_q_scale_code = vs->read(5);
 
-    // MV
+    // Read MV
     if ((this->mb_motion_f) || 
-        (this->mb_intra && this->concealment_mv))
-        printf("MV1 HAIYAA\n");
-    if (this->mb_motion_b)
-        printf("MV2 HAIYAA\n");
+        (this->mb_intra && this->concealment_mv)) {
+        this->read_mvs(vs, 0);
+    }
+    if (this->mb_motion_b) {
+        this->read_mvs(vs, 1);
+    }
     if (this->mb_intra && this->concealment_mv)
         vs->read(1); //marker bit
 
-    // Pattern
-    if (this->mb_pattern)
-        printf("PATTERN HAIYAA\n");
-
-    // DO BLOCKS
-    // Only 420, i.e. 4L 1Cb 1Cr
-    this->proc_block(vs, 0, this->mb_row * 16,     this->mb_col * 16);
-    this->proc_block(vs, 0, this->mb_row * 16,     this->mb_col * 16 + 8);
-    this->proc_block(vs, 0, this->mb_row * 16 + 8, this->mb_col * 16);
-    this->proc_block(vs, 0, this->mb_row * 16 + 8, this->mb_col * 16 + 8);
-    this->proc_block(vs, 1, this->mb_row * 16,     this->mb_col * 16);
-    this->proc_block(vs, 2, this->mb_row * 16,     this->mb_col * 16);
-
-    static int count = 0;
-    if (count == 1346) {
-        this->dump("dump.ppm");
-        exit(-1);
+    // Pattern, only consider 420
+    if (this->mb_pattern) {
+        B9.get(vs);
+        this->mb_pattern_code = B9.run;
     }
-    count++;
+    else
+        this->mb_pattern_code = 0xff;
+    printf("pattern: %x\n", mb_pattern_code);
+
+    // DO BLOCKS, only consider 420, i.e. 4L 1Cb 1Cr
+    u8 cc[6]    = {0, 0, 0, 0, 1, 2};
+    u8 del_x[6] = {0, 0, 8, 8, 0, 0};
+    u8 del_y[6] = {0, 8, 0, 8, 0, 0};
+    for (u8 i = 0; i < 6; ++i)
+        if (mb_pattern_code & (1 << i)) {
+            printf("HI %d \n", i);
+            this->proc_block(vs, cc[i], this->mb_row * 16 + del_x[i],\
+                                        this->mb_col * 16 + del_y[i]);
+        }
+
+    //static int count = 0;
+    //if (count == 919)
+        //this->dump("dump.ppm");
+    //if (count == 950)
+        //exit(-1);
+    //count++;
 }
 
 void Picture::dump (char* filename) {
@@ -960,14 +1020,45 @@ void Picture::dump (char* filename) {
             u8 R = bandpass(1.0 * Y - 0.00093 * C1 + 1.401687 * C2);
             u8 G = bandpass(1.0 * Y - 0.3437  * C1 - 0.71417  * C2);
             u8 B = bandpass(1.0 * Y + 1.77216 * C1 + 0.00099  * C2);
-            //u8 R = Y;
-            //u8 G = C1;
-            //u8 B = C2;
             fprintf(fp, "%d %d %d ", R, G, B);
         }
         fprintf(fp, "\n");
     }
     fclose(fp);
+}
+
+void Picture::read_mvs (Stream* vs, u8 s) {
+    if (this->mb_mv_count == 1) {
+        // Suppose Frame
+        printf("HH\n");
+        read_mv(vs, 0, s);
+    }
+    else {
+        this->mb_mv_field_select[0][s] = vs->read(1);
+        read_mv(vs, 0, s);
+        this->mb_mv_field_select[1][s] = vs->read(1);
+        read_mv(vs, 1, s);
+    }
+}
+
+void Picture::read_mv (Stream* vs, u8 r, u8 s) {
+    B10.get(vs);
+    this->mb_mv_code[r][s][0] = B10.run;
+    if ((this->f_code[s][0] != 1) && (this->mb_mv_code[r][s][0] != 0))
+        this->mb_m_residular[r][s][0] = vs->read(this->f_code[s][0] - 1);
+    if (this->mb_dmv == 1) {
+        B11.get(vs);
+        this->mb_dmvector[0] = B11.run;
+    }
+
+    B10.get(vs);
+    this->mb_mv_code[r][s][1] = B10.run;
+    if ((this->f_code[s][0] != 1) && (this->mb_mv_code[r][s][1] != 0))
+        this->mb_m_residular[r][s][1] = vs->read(this->f_code[s][1] - 1);
+    if (this->mb_dmv == 1) {
+        B11.get(vs);
+        this->mb_dmvector[1] = B11.run;
+    }
 }
 
 void Picture::reset_pre_dc_coeff() {
@@ -1003,7 +1094,12 @@ void Picture::proc_block(Stream* vs, u8 cc, u16 x, u16 y) {
             }
         }
     }
-    // AC == NULL if intra frame
+    else {
+        // AC == NULL if inter frame
+        quant = this->intra_q;
+        DC = &B14;
+        AC = NULL;
+    }
 
     Block block(vs, this->pre_dc_coeff[cc], DC, AC, quant, \
             this->intra_dc_prec, this->q_scale_type, this->q_scale_code);
@@ -1013,10 +1109,10 @@ void Picture::proc_block(Stream* vs, u8 cc, u16 x, u16 y) {
             if (!cc)
                 this->pixel[cc][idx2(x + i, y + j, this->horz_size)] = block.data[idx(i, j)];
             else {
-                this->pixel[cc][idx2(x + 2 * i    , y + 2 * j    , this->horz_size)] = block.data[idx(i, j)];
-                this->pixel[cc][idx2(x + 2 * i + 1, y + 2 * j    , this->horz_size)] = block.data[idx(i, j)];
-                this->pixel[cc][idx2(x + 2 * i    , y + 2 * j + 1, this->horz_size)] = block.data[idx(i, j)];
-                this->pixel[cc][idx2(x + 2 * i + 1, y + 2 * j + 1, this->horz_size)] = block.data[idx(i, j)];
+                this->pixel[cc][idx2(x + 2*i    , y+2 * j    , this->horz_size)] = block.data[idx(i, j)];
+                this->pixel[cc][idx2(x + 2*i + 1, y+2 * j    , this->horz_size)] = block.data[idx(i, j)];
+                this->pixel[cc][idx2(x + 2*i    , y+2 * j + 1, this->horz_size)] = block.data[idx(i, j)];
+                this->pixel[cc][idx2(x + 2*i + 1, y+2 * j + 1, this->horz_size)] = block.data[idx(i, j)];
             }
 }
 //=====================================================
@@ -1030,7 +1126,9 @@ int main (int argc, char* argv[]) {
     Stream* vs = new Stream(argv[1]);
     Seq_header* seq;
     Gop_header* gop_header;
-    Picture*    picture;
+    Picture*    pic_now = NULL;
+    Picture*    ref_f;
+    Picture*    ref_b;
 
     u8 start_code;
     u8 pre_start_code;
@@ -1063,8 +1161,8 @@ int main (int argc, char* argv[]) {
                     case SCODE_PIC:
                         switch (vs->now_ext_code()) {
                             case ECODE_PIC_EXT:
-                                picture->read_ext(vs);
-                                picture->print();
+                                pic_now->read_ext(vs);
+                                pic_now->print();
                                 break;
                             default:
                                 check(0, "Wrong ext code after sequence header");
@@ -1079,7 +1177,32 @@ int main (int argc, char* argv[]) {
                 gop_header->print();
                 break;
             case SCODE_PIC:
-                picture = new Picture(vs, seq);
+                if (pic_now != NULL) {
+                    printf("Finish Decode Picture %d\n", pic_now->temp_ref);
+                    pic_now->dump("dump.ppm");
+                    switch (pic_now->type) {
+                        case PIC_TYPE_I:
+                            if (ref_f)
+                                delete ref_f;
+                            if (ref_b)
+                                delete ref_b;
+                            ref_f = pic_now;
+                            ref_b = NULL;
+                            break;
+                        case PIC_TYPE_P:
+                            if (ref_b) {
+                                delete ref_f;
+                                ref_f = ref_b;
+                                ref_b = pic_now;
+                            }
+                            else
+                                ref_b = pic_now;
+                            break;
+                        case PIC_TYPE_B:
+                            break;
+                    }
+                }
+                pic_now = new Picture(vs, seq);
                 break;
             case SCODE_END:
                 printf("End of sequence\n");
@@ -1088,7 +1211,7 @@ int main (int argc, char* argv[]) {
                 if (start_code > SCODE_MAX_SLICE)
                     printf("Start Code: %x\n", start_code);
                 if (start_code <= SCODE_MAX_SLICE)
-                    picture->read_slice(vs);
+                    pic_now->read_slice(vs);
                 //if (start_code == 0xd)
                     //exit(-1);
         }
