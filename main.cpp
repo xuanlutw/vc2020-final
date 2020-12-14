@@ -1,6 +1,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstdint>
+#include <cmath>
 #include "default.h"
 
 # define check(cond, msg, ...) do {                                             \
@@ -9,6 +10,17 @@
                                        exit(-1);                                \
                                    }                                            \
                                } while(0);
+
+u8 bandpass (double val) {
+    // Bandpass filter
+
+    if (val >= 255.0)
+        return 255;
+    else if (val <= 0.0)
+        return 0;
+    else
+        return (u8) round(val);
+}
 
 class Stream {
     public:
@@ -51,43 +63,43 @@ Stream::~Stream() {
 
 void Stream::read_buf () {
     u8 c;
-    //while (1) {
-        //if (this->depes_buf_len == 32) {
-            //if (this->depes_buf == 0x000001e0) {
-                //// FLUSH
-                //this->depes_buf_len = 0;
+    while (1) {
+        if (this->depes_buf_len == 32) {
+            if (this->depes_buf == 0x000001e0) {
+                // FLUSH
+                this->depes_buf_len = 0;
+                check(fread(&c, sizeof(u8), 1, this->fp), "Reach EOF");
+                printf("|%x\n", c);
+                check(fread(&c, sizeof(u8), 1, this->fp), "Reach EOF");
+                printf("|%x\n", c);
+                check(fread(&c, sizeof(u8), 1, this->fp), "Reach EOF");
+                printf("|%x\n", c);
+                //check(fread(&c, sizeof(u8), 1, this->fp), "Reach EOF");
+                //printf("|%x\n", c);
+                //this->depes_buf_len = 8;
+                //this->depes_buf     = c;
+                //check(fread(&c, sizeof(u8), 1, this->fp), "Reach EOF");
+                //printf("|%x\n", c);
+                //this->depes_buf_len = 16;
+                //this->depes_buf     <<= 8;
+                //this->depes_buf     += c;
                 //check(fread(&c, sizeof(u8), 1, this->fp), "Reach EOF");
                 //printf("|%x\n", c);
                 //check(fread(&c, sizeof(u8), 1, this->fp), "Reach EOF");
                 //printf("|%x\n", c);
-                //check(fread(&c, sizeof(u8), 1, this->fp), "Reach EOF");
-                //printf("|%x\n", c);
-                ////check(fread(&c, sizeof(u8), 1, this->fp), "Reach EOF");
-                ////printf("|%x\n", c);
-                ////this->depes_buf_len = 8;
-                ////this->depes_buf     = c;
-                ////check(fread(&c, sizeof(u8), 1, this->fp), "Reach EOF");
-                ////printf("|%x\n", c);
-                ////this->depes_buf_len = 16;
-                ////this->depes_buf     <<= 8;
-                ////this->depes_buf     += c;
-                ////check(fread(&c, sizeof(u8), 1, this->fp), "Reach EOF");
-                ////printf("|%x\n", c);
-                ////check(fread(&c, sizeof(u8), 1, this->fp), "Reach EOF");
-                ////printf("|%x\n", c);
-            //}
-            //else
-                //break;
-        //}
-        //else {
-            //check(fread(&c, sizeof(u8), 1, this->fp), "Reach EOF");
-            //this->depes_buf    <<= 8;
-            //this->depes_buf     += c;
-            //this->depes_buf_len += 8;
-        //}
-    //}
+            }
+            else
+                break;
+        }
+        else {
+            check(fread(&c, sizeof(u8), 1, this->fp), "Reach EOF");
+            this->depes_buf    <<= 8;
+            this->depes_buf     += c;
+            this->depes_buf_len += 8;
+        }
+    }
     c = (this->depes_buf >> 24) & 0xff;
-    check(fread(&c, sizeof(u8), 1, this->fp), "Reach EOF");
+    //check(fread(&c, sizeof(u8), 1, this->fp), "Reach EOF");
     this->depes_buf_len -= 8;
     this->buf          <<= 8;
     this->buf           += c;
@@ -422,7 +434,6 @@ void Seq_header::read_ext (Stream* vs) {
     /* frame rate ext n*/   vs->read(2);
     /* frame rate ext d*/   vs->read(5);
     /* Both 0 in main profile*/
-    //check(this->progressive_seq, "Not a progressive sequence");
     check(this->chroma_format == 1, "Not chroma format 420");
 }
 
@@ -518,27 +529,33 @@ void Gop_header::print () {
 class Block {
     public:
         // Intra Block
-        Block (Stream* cs, Seq_header* seq, i16 pre_dc_coeff, Huffman* DC, Huffman* AC);
+        Block (Stream* cs, i16 pre_dc_coeff, Huffman* DC, Huffman* AC, u8* quant, \
+               u8 intra_dc_prec, u8 q_scale_type, u8 q_scale_code);
         void print ();
+        void inverse_scan ();
+        // Set intra_dc_prec for inter
+        void inverse_q (u8* quant, u8 intra_dc_prec, u8 q_scale_type, u8 q_scale_code);
+        void inverse_DCT ();
+        void inverse_DCT1 ();
         i16 data[64];
         i16 dc_coeff;
 };
 
-Block::Block (Stream* vs, Seq_header* seq, i16 pre_dc_coeff, Huffman* DC, Huffman* AC) {
+Block::Block (Stream* vs, i16 pre_dc_coeff, Huffman* DC, Huffman* AC, u8* quant, \
+    u8 intra_dc_prec, u8 q_scale_type, u8 q_scale_code) {
     for (int i = 0; i < 64; ++i)
         data[i] = 0;
-    this->print();
 
     // Read DC coeff
     DC->get(vs, false);
-    printf("DC: %d %d %d\n", DC->type, DC->run, DC->level);
+    //printf("DC: %d %d %d\n", DC->type, DC->run, DC->level);
     data[0] = pre_dc_coeff + DC->level;
     this->dc_coeff = data[0];
 
     // Read AC coeff
-    for (int i = 1; i < 64;) {
+    for (int i = 1; i < 64; ++i) {
         AC->get(vs, false);
-        printf("%d %d %d\n", AC->type, AC->run, AC->level);
+        //printf("%d %d %d\n", AC->type, AC->run, AC->level);
         if (AC->type == HUFFMAN_CODE_END)
             break;
         else {
@@ -546,27 +563,151 @@ Block::Block (Stream* vs, Seq_header* seq, i16 pre_dc_coeff, Huffman* DC, Huffma
             data[i] = AC->level;
         }
     }
-    this->print();
-    exit(-1);
+    //printf("Block Start\n");
+    //this->print();
+
+    this->inverse_scan();
+    //this->print();
+    
+    this->inverse_q(quant, intra_dc_prec, q_scale_type, q_scale_code);
+    //this->print();
+
+    this->inverse_DCT();
+    //this->print();
+    //exit(-1);
+}
+
+void Block::inverse_scan () {
+    i16 tmp[64];
+    for (int i = 0; i < 64; ++i)
+        tmp[i] = this->data[i];
+    for (int i = 0; i < 8; ++i)
+        for (int j = 0; j < 8; ++j)
+            this->data[idx(i, j)] = tmp[zz[idx(i, j)]];
+}
+
+void Block::inverse_q (u8* quant, u8 intra_dc_prec, u8 q_scale_type, u8 q_scale_code) {
+    // intra_dc_prec = 0 indicate inter
+
+    // IQ
+    for (int v = 0; v < 8; v++) {
+        for (int u = 0; u < 8; u++) {
+            if ((u == 0) && (v == 0) && intra_dc_prec ) {
+                switch (intra_dc_prec) {
+                    case 8:
+                        data[idx(v, u)] = 8 * data[idx(v, u)];
+                        break;
+                    case 9:
+                        data[idx(v, u)] = 4 * data[idx(v, u)];
+                        break;
+                    case 10:
+                        data[idx(v, u)] = 2 * data[idx(v, u)];
+                        break;
+                    case 11:
+                        data[idx(v, u)] = 1 * data[idx(v, u)];
+                        break;
+                }
+            }
+            else {
+                if (intra_dc_prec) {
+                    data[idx(v, u)] = (data[idx(v, u)] * quant[idx(v, u)] * \
+                            q_scale[q_scale_type][q_scale_code] * 2) / 32;
+                }
+                else {
+                    data[idx(v, u)] = ((data[idx(v, u)] * 2 + sign(data[idx(v, u)])) * \
+                            quant[idx(v, u)] * q_scale[q_scale_type][q_scale_code]) / 32;
+                }
+            }
+        }
+    }
+
+    // Saturation
+    i64 sum = 0;
+    for (int v = 0; v < 8; v++) {
+        for (int u = 0; u < 8; u++) {
+            if (data[idx(v, u)] > 2047)
+                data[idx(v, u)] = 2047;
+            else if (data[idx(v, u)] < -2048 )
+                data[idx(v, u)] = -2048;
+            sum += data[idx(v, u)];
+        }
+    }
+
+    // Mismatch control
+    if ((sum & 1) == 0) {
+        if ((data[idx(7, 7)] & 1) != 0) {
+            data[idx(7, 7)] = data[idx(7, 7)] - 1;
+        } else {
+            data[idx(7, 7)] = data[idx(7, 7)] + 1;
+        }
+    }
+}
+
+void Block::inverse_DCT1 () {
+
+    static double* cos_table = NULL;
+    static double* coeff     = NULL;
+
+    // Init cos table and only once
+    if (!cos_table) {
+        cos_table = (double*)malloc(sizeof(double) * M_COS);
+        for (u8 i = 0; i < M_COS; i++)
+            cos_table[i] = cos(i * M_PI / 16.0);
+    }
+
+    // Init coefficient and only once
+    if (!coeff) {
+        coeff = (double*)malloc(sizeof(double) * 8);
+        coeff[0] = 1. / sqrt(2.);
+        for (u8 i = 1; i < 8; i++)
+            coeff[i] = 1.;
+    }
+
+    // Transform
+    i16 tmp[64] = {0};
+    for (int j = 0; j < 8; j++)
+        for (int x = 0; x < 8; x++) {
+            for (int y = 0; y < 8; y++)
+                tmp[idx(j, x)] += coeff[y] * this->data[idx(x, y)] * cos_table[((j << 1) + 1) * y];
+            tmp[idx(j, x)] /= 2.;
+        }
+    for (int x = 0; x < 8; x++)
+        for (int y = 0; y < 8; y++)
+            this->data[idx(x, y)] = tmp[idx(x, y)];
+    return;
+}
+
+void Block::inverse_DCT () {
+    // Inverse descrete cosine transform
+
+    this->inverse_DCT1();
+    this->inverse_DCT1();
 }
 
 void Block::print () {
     for (int i = 0; i < 8; ++i) {
         printf("||>>");
         for (int j = 0; j < 8; ++j)
-            printf("%2d ", data[idx(i, j)]);
+            printf("%3d ", data[idx(i, j)]);
         printf("\n");
     }
+    printf("\n");
 }
 //=====================================================
 
 class Picture {
     public:
-        Picture (Stream* vs);
+        Picture (Stream* vs, Seq_header* seq);
         void read_ext (Stream* vs);
         void print ();
-        void read_slice (Stream* vs, Seq_header* seq);
-        void read_mb (Stream* vs, Seq_header* seq);
+        void read_slice (Stream* vs);
+        void read_mb (Stream* vs);
+        void dump (char* filename);
+        i16* pixel[3];
+        u16 horz_size;
+        u16 vert_size;
+        u8* intra_q;
+        u8* inter_q;
         // Header
         u16 temp_ref;
         u8  type;
@@ -617,9 +758,11 @@ class Picture {
         u8  mb_q_scale_code;
         // Block
         i16 pre_dc_coeff[3];
+        void reset_pre_dc_coeff();
+        void proc_block(Stream* vs, u8 cc, u16 x, u16 y);
 };
 
-Picture::Picture (Stream* vs) {
+Picture::Picture (Stream* vs, Seq_header* seq) {
     this->temp_ref            = vs->read(10);
     this->type                = vs->read(3);
     this->vbv_delay           = vs->read(16);
@@ -636,6 +779,17 @@ Picture::Picture (Stream* vs) {
     check(this->type == PIC_TYPE_I || \
             this->type == PIC_TYPE_P || \
             this->type == PIC_TYPE_B, "Wrong picture type %d", this->type);
+
+    // Init pixels
+    this->horz_size = seq->horz_size; 
+    this->vert_size = seq->vert_size;
+    this->intra_q   = seq->intra_q;
+    this->inter_q   = seq->inter_q;
+    this->pixel[0] = new i16[this->horz_size * this->vert_size];
+    this->pixel[1] = new i16[this->horz_size * this->vert_size];
+    this->pixel[2] = new i16[this->horz_size * this->vert_size];
+    // Default
+    this->intra_dc_prec = 8;
 }
 
 void Picture::read_ext (Stream* vs) {
@@ -693,10 +847,10 @@ void Picture::print () {
     printf("=================================================\n");
 }
 
-void Picture::read_slice (Stream* vs, Seq_header* seq) {
+void Picture::read_slice (Stream* vs) {
     check(vs->now_start_code() <= SCODE_MAX_SLICE, "Not on slice start header");
     this->mb_row           = vs->now_start_code() - 1;
-    if (seq->vert_size > 2800)
+    if (this->vert_size > 2800)
         mb_row            += (vs->read(3) << 7);
     this->mb_col           = -1;
     this->q_scale_code     = vs->read(5);
@@ -707,17 +861,19 @@ void Picture::read_slice (Stream* vs, Seq_header* seq) {
         while (vs->read(1)) // Remove Extra Info
             vs->read_u8();
     }
-    int cc = 0;
+    this->reset_pre_dc_coeff();
+
+    int mb_count = 0;
     while (!vs->next_bits_eq(0, 23)) {
-        printf("pic_type = %d, slice = %d, cc = %d\n", this->type, this->mb_row, cc++);
-        this->read_mb(vs, seq);
+        printf("pic_type = %d, slice = %d, mb_count = %d\n", this->type, this->mb_row, mb_count++);
+        this->read_mb(vs);
     }
 }
 
-void Picture::read_mb (Stream* vs, Seq_header* seq) {
+void Picture::read_mb (Stream* vs) {
     // Read Address Increasing
     B1.get(vs, false);
-    printf("MB Address Increase: %d\n", B1.run);
+    //printf("MB Address Increase: %d\n", B1.run);
     this-> mb_col += B1.run;
     if (B1.run == MB_ESCAPE) {
         this->mb_col += MB_ESCAPE - 1;
@@ -725,6 +881,8 @@ void Picture::read_mb (Stream* vs, Seq_header* seq) {
         printf("HAIYAA\n");
         return;
     }
+    if (B1.run > 1)
+        this->reset_pre_dc_coeff();
 
     // Read MB Modes
     switch (this->type) {
@@ -744,7 +902,7 @@ void Picture::read_mb (Stream* vs, Seq_header* seq) {
     this->mb_intra    = (this->mb_mode >> 2) & 1;
     this->mb_stwcf    = (this->mb_mode >> 1) & 1; // This two always zero
     this->mb_p_stwc   = (this->mb_mode >> 0) & 1; // in non scalable mode
-    printf("MB Type: %d\n", this->mb_mode);
+    //printf("MB Type: %d\n", this->mb_mode);
     //if (this->mb_motion_f || this->mb_motion_b)
         //u8 motion_type = vs->read(2); // Read Motion Type, Skip
     this->mb_decode_dct_type = (this->pic_structure == PIC_STRUCT_F) && \
@@ -752,7 +910,9 @@ void Picture::read_mb (Stream* vs, Seq_header* seq) {
                                (this->mb_intra || this->mb_pattern);
     if (this->mb_decode_dct_type) // Read decode dct type
         this->mb_dct_type    = vs->read(1); 
-    printf("mb dct %d %d\n", this->mb_decode_dct_type, this->mb_dct_type);
+    //printf("mb dct %d %d\n", this->mb_decode_dct_type, this->mb_dct_type);
+    if (!this->mb_intra)
+        this->reset_pre_dc_coeff();
 
     // Read MB Q scale code
     if (this->mb_quant)
@@ -773,36 +933,92 @@ void Picture::read_mb (Stream* vs, Seq_header* seq) {
 
     // DO BLOCKS
     // Only 420, i.e. 4L 1Cb 1Cr
-    Block* block;
-    for (int counter = 0; counter < 4; ++counter) {
-        if (this->mb_intra) {
-            if (intra_vlc_format)
-                block = new Block(vs, seq, this->pre_dc_coeff[0], &B12, &B15);
-            else
-                block = new Block(vs, seq, this->pre_dc_coeff[0], &B12, &B14);
-        }
-        pre_dc_coeff[0] = block->dc_coeff;
+    this->proc_block(vs, 0, this->mb_row * 16,     this->mb_col * 16);
+    this->proc_block(vs, 0, this->mb_row * 16,     this->mb_col * 16 + 8);
+    this->proc_block(vs, 0, this->mb_row * 16 + 8, this->mb_col * 16);
+    this->proc_block(vs, 0, this->mb_row * 16 + 8, this->mb_col * 16 + 8);
+    this->proc_block(vs, 1, this->mb_row * 16,     this->mb_col * 16);
+    this->proc_block(vs, 2, this->mb_row * 16,     this->mb_col * 16);
+
+    static int count = 0;
+    if (count == 1346) {
+        this->dump("dump.ppm");
+        exit(-1);
     }
-    for (int counter = 0; counter < 1; ++counter) {
-        if (this->mb_intra) {
-            if (intra_vlc_format)
-                block = new Block(vs, seq, this->pre_dc_coeff[1], &B13, &B15);
-            else
-                block = new Block(vs, seq, this->pre_dc_coeff[1], &B13, &B14);
-        }
-        pre_dc_coeff[1] = block->dc_coeff;
-    }
-    for (int counter = 0; counter < 1; ++counter) {
-        if (this->mb_intra) {
-            if (intra_vlc_format)
-                block = new Block(vs, seq, this->pre_dc_coeff[2], &B13, &B15);
-            else
-                block = new Block(vs, seq, this->pre_dc_coeff[2], &B13, &B14);
-        }
-        pre_dc_coeff[2] = block->dc_coeff;
-    }
+    count++;
 }
 
+void Picture::dump (char* filename) {
+    FILE* fp = fopen(filename, "w");
+    fprintf(fp, "P3\n%d %d\n255\n", this->horz_size, this->vert_size);
+    for (u16 i = 0; i < this->vert_size; ++i) {
+        for (u16 j = 0; j < this->horz_size; ++j) {
+            u32 index = idx2(i, j, this->horz_size);
+            i16 Y  = this->pixel[0][index];
+            i16 C1 = this->pixel[1][index] - 128;
+            i16 C2 = this->pixel[2][index] - 128;
+            u8 R = bandpass(1.0 * Y - 0.00093 * C1 + 1.401687 * C2);
+            u8 G = bandpass(1.0 * Y - 0.3437  * C1 - 0.71417  * C2);
+            u8 B = bandpass(1.0 * Y + 1.77216 * C1 + 0.00099  * C2);
+            //u8 R = Y;
+            //u8 G = C1;
+            //u8 B = C2;
+            fprintf(fp, "%d %d %d ", R, G, B);
+        }
+        fprintf(fp, "\n");
+    }
+    fclose(fp);
+}
+
+void Picture::reset_pre_dc_coeff() {
+    this->pre_dc_coeff[0] = 1 << (this->intra_dc_prec - 1);
+    this->pre_dc_coeff[1] = 1 << (this->intra_dc_prec - 1);
+    this->pre_dc_coeff[2] = 1 << (this->intra_dc_prec - 1);
+}
+
+void Picture::proc_block(Stream* vs, u8 cc, u16 x, u16 y) {
+    Huffman* DC;
+    Huffman* AC;
+    u8* quant;
+    if (this->mb_intra) {
+        quant = this->intra_q;
+        if (intra_vlc_format) {
+            if (cc == 0) {
+                DC = &B12;
+                AC = &B15;
+            }
+            else {
+                DC = &B13;
+                AC = &B15;
+            }
+        }
+        else {
+            if (cc == 0) {
+                DC = &B12;
+                AC = &B14;
+            }
+            else {
+                DC = &B13;
+                AC = &B14;
+            }
+        }
+    }
+    // AC == NULL if intra frame
+
+    Block block(vs, this->pre_dc_coeff[cc], DC, AC, quant, \
+            this->intra_dc_prec, this->q_scale_type, this->q_scale_code);
+    this->pre_dc_coeff[cc] = block.dc_coeff;
+    for (int i = 0; i < 8; ++i)
+        for (int j = 0; j < 8; ++j)
+            if (!cc)
+                this->pixel[cc][idx2(x + i, y + j, this->horz_size)] = block.data[idx(i, j)];
+            else {
+                this->pixel[cc][idx2(x + 2 * i    , y + 2 * j    , this->horz_size)] = block.data[idx(i, j)];
+                this->pixel[cc][idx2(x + 2 * i + 1, y + 2 * j    , this->horz_size)] = block.data[idx(i, j)];
+                this->pixel[cc][idx2(x + 2 * i    , y + 2 * j + 1, this->horz_size)] = block.data[idx(i, j)];
+                this->pixel[cc][idx2(x + 2 * i + 1, y + 2 * j + 1, this->horz_size)] = block.data[idx(i, j)];
+            }
+}
 //=====================================================
 
 int main (int argc, char* argv[]) {
@@ -812,7 +1028,7 @@ int main (int argc, char* argv[]) {
     //B15.triverse();
     check(argc == 2, "Wrong parameters");
     Stream* vs = new Stream(argv[1]);
-    Seq_header* seq_header;
+    Seq_header* seq;
     Gop_header* gop_header;
     Picture*    picture;
 
@@ -823,7 +1039,7 @@ int main (int argc, char* argv[]) {
         printf("Start Code: %x\n", start_code);
         switch (start_code) {
             case SCODE_SEQ:
-                seq_header = new Seq_header(vs);
+                seq = new Seq_header(vs);
                 break;
             case SCODE_USR:
                 /* DO NOTHING*/
@@ -834,11 +1050,11 @@ int main (int argc, char* argv[]) {
                     case SCODE_SEQ:
                         switch (vs->now_ext_code()) {
                             case ECODE_SEQ_EXT:
-                                seq_header->read_ext(vs);
-                                seq_header->print();
+                                seq->read_ext(vs);
+                                seq->print();
                                 break;
                             case ECODE_SEQ_DSP:
-                                seq_header->read_dsp(vs);
+                                seq->read_dsp(vs);
                                 break;
                             default:
                                 check(0, "Wrong ext code after sequence header");
@@ -863,7 +1079,7 @@ int main (int argc, char* argv[]) {
                 gop_header->print();
                 break;
             case SCODE_PIC:
-                picture = new Picture(vs);
+                picture = new Picture(vs, seq);
                 break;
             case SCODE_END:
                 printf("End of sequence\n");
@@ -871,67 +1087,16 @@ int main (int argc, char* argv[]) {
             default:
                 if (start_code > SCODE_MAX_SLICE)
                     printf("Start Code: %x\n", start_code);
+                if (start_code <= SCODE_MAX_SLICE)
+                    picture->read_slice(vs);
                 //if (start_code == 0xd)
                     //exit(-1);
-                if (start_code <= SCODE_MAX_SLICE)
-                    picture->read_slice(vs, seq_header);
         }
         if (start_code != SCODE_EXT && start_code != SCODE_USR) 
             pre_start_code = start_code;
         //if (start_code == 0x01)
             //// TO FIREST SLICE
             //break;
-    }
-    u8 quantiser_scale_code = vs->read(5);
-    if (vs->read(1)) {
-        vs->read(9);
-        while (vs->read(1))
-            vs->read(8);
-    }
-    u8 mb_row = start_code - 1;
-    // End OF Slice Header
-    B1.get(vs, false);
-    printf("MB Address Increase: %d\n", B1.run);
-    // B2 for I-picture
-    B2.get(vs, false);
-    u8 mb_quant    = (B2.run >> 6) & 1;
-    u8 mb_motion_f = (B2.run >> 5) & 1;
-    u8 mb_motion_b = (B2.run >> 4) & 1;
-    u8 mb_pattern  = (B2.run >> 3) & 1;
-    u8 mb_intra    = (B2.run >> 2) & 1;
-    u8 stwcf       = (B2.run >> 1) & 1; // This two always zero
-    u8 p_stwc      = (B2.run >> 0) & 1; // in non scalable mode
-    printf("MB Type: %d\n", B2.run);
-    if (mb_motion_f || mb_motion_b)
-        u8 motion_type = vs->read(2);
-        // NO motion in I frame
-    // What is frame_pred_frame_dct = =
-    u8 dct_type = vs->read(1);
-    printf("%d\n", dct_type);
-    // Read motion
-    // SKIP
-    vs->read(1); //marker bit
-    // Start of BLOCK1
-    // 4:2:0
-    for (int i = 0; i < 4; ++i) {
-        B12.get(vs, false);
-        printf("%d\n", B12.level);
-        while (1) {
-            B14.get(vs, false);
-            printf("%d %d %d\n", B14.type, B14.run, B14.level);
-            if (B14.type == HUFFMAN_CODE_END)
-                break;
-        }
-    }
-    for (int i = 0; i < 2; ++i) {
-        B13.get(vs, false);
-        printf("%d\n", B12.level);
-        while (1) {
-            B14.get(vs, false);
-            printf("%d %d %d\n", B14.type, B14.run, B14.level);
-            if (B14.type == HUFFMAN_CODE_END)
-                break;
-    }
     }
 }
 

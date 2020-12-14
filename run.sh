@@ -1,2 +1,3 @@
+rm a.out
 g++ main.cpp
-./a.out video/bipolar_22.mpg
+./a.out video/bipolar_33.mpg

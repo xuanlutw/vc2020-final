@@ -7,6 +7,7 @@ typedef uint64_t u64;
 typedef int8_t   i8;
 typedef int16_t  i16;
 typedef int32_t  i32;
+typedef int64_t  i64;
 
 #define HUFFMAN_CODE_NORMAL   0
 #define HUFFMAN_CODE_END      1
@@ -325,6 +326,20 @@ u8 default_inter_q[64] = {16, 16, 16, 16, 16, 16, 16, 16, \
                           16, 16, 16, 16, 16, 16, 16, 16, \
                           16, 16, 16, 16, 16, 16, 16, 16};
 
+// This ONLY for frame picture
+u8 zz[64] = { 0,  1,  5,  6, 14, 15, 27, 28, \
+              2,  4,  7, 13, 16, 26, 29, 42, \
+              3,  8, 12, 17, 25, 30, 41, 43, \
+              9, 11, 18, 24, 31, 40, 44, 53, \
+             10, 19, 23, 32, 39, 45, 52, 54, \
+             20, 22, 33, 38, 46, 51, 55, 60, \
+             21, 34, 37, 47, 50, 56, 59, 61, \
+             35, 36, 48, 49, 57, 58, 62, 63 };
+
+u8 q_scale[2][32] = {
+    { 0,  2,  4,  6,  8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40, 42, 44, 46, 48, 50, 52, 54, 56, 58, 60, 62},
+    { 0,  1,  2,  3,  4,  5,  6,  7,  8, 10, 12, 14, 16, 18, 20, 22, 24, 28, 32, 36, 40, 44, 48, 52, 56, 64, 72, 80, 88, 96, 104, 112}};
+
 #define SCODE_PIC 0x00
 #define SCODE_USR 0xb2
 #define SCODE_SEQ 0xb3
@@ -350,3 +365,8 @@ u8 default_inter_q[64] = {16, 16, 16, 16, 16, 16, 16, 16, \
 #define PIC_STRUCT_B 0x02
 #define PIC_STRUCT_F 0x03
 #define idx(i, j) (8 * (i) + (j))
+#define idx2(i, j, x) ((x) * (i) + (j))
+#define sign(x) (((x) > 0) - ((x) < 0))
+
+#define M_COS 200
+
