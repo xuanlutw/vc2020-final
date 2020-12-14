@@ -8,6 +8,11 @@ typedef int8_t   i8;
 typedef int16_t  i16;
 typedef int32_t  i32;
 
+#define HUFFMAN_CODE_NORMAL   0
+#define HUFFMAN_CODE_END      1
+#define HUFFMAN_CODE_ESCAPE   2
+#define HUFFMAN_CODE_INTER_DC 3
+#define HUFFMAN_CODE_OTHER    4
 char B12_str[] = "100         |3|0 |0|\
                   00          |3|1 |0|\
                   01          |3|2 |0|\
@@ -297,6 +302,8 @@ char B1_str[] = "1             |4|1 |0|\
                  0000 0011 000 |4|33|0|\
                  0000 0001 000 |4|34|0|";
 
+#define MB_ESCAPE 34
+
 char B2_str[] = "1  |4|4 |0|\
                  01 |4|64|0|";
 
@@ -324,6 +331,7 @@ u8 default_inter_q[64] = {16, 16, 16, 16, 16, 16, 16, 16, \
 #define SCODE_EXT 0xb5
 #define SCODE_END 0xb7
 #define SCODE_GOP 0xb8
+#define SCODE_MAX_SLICE 0xaf
 
 #define ECODE_SEQ_EXT  0x1
 #define ECODE_SEQ_DSP  0x2
