@@ -181,9 +181,9 @@ u8 Stream::now_ext_code () {
 
 class H_data{
     public:
-        u8 type;
-        u8 run;
-        u8 level;
+        i16 type;
+        i16 run;
+        i16 level;
         H_data();
 };
 
@@ -265,7 +265,7 @@ Huffman::Huffman (char* str, bool is_B14) {
     this->is_DC  = false;
     this->root = new H_node();
     H_node* node_now = this->root;
-    u8 sign;
+    i8 sign;
     for (; *str; ++str)
         switch (*str) {
             case ' ':
@@ -786,7 +786,7 @@ class Picture {
         u8  mb_mv_count;
         u8  mb_dmv;
         u8  mb_mv_field_select[2][2];
-        u8  mb_mv_code[2][2][2];
+        i8  mb_mv_code[2][2][2];
         u8  mb_m_residular[2][2][2];
         u8  mb_dmvector[2];
         void read_mvs (Stream* vs, u8 s);
@@ -883,6 +883,25 @@ void Picture::print () {
     printf("=================================================\n");
 }
 
+void Picture::dump (char* filename) {
+    FILE* fp = fopen(filename, "w");
+    fprintf(fp, "P3\n%d %d\n255\n", this->horz_size, this->vert_size);
+    for (u16 i = 0; i < this->vert_size; ++i) {
+        for (u16 j = 0; j < this->horz_size; ++j) {
+            u32 index = idx2(i, j, this->horz_size);
+            i16 Y  = this->pixel[0][index];
+            i16 C1 = this->pixel[1][index] - 128;
+            i16 C2 = this->pixel[2][index] - 128;
+            u8 R = bandpass(1.0 * Y - 0.00093 * C1 + 1.401687 * C2);
+            u8 G = bandpass(1.0 * Y - 0.3437  * C1 - 0.71417  * C2);
+            u8 B = bandpass(1.0 * Y + 1.77216 * C1 + 0.00099  * C2);
+            fprintf(fp, "%d %d %d ", R, G, B);
+        }
+        fprintf(fp, "\n");
+    }
+    fclose(fp);
+}
+
 void Picture::read_slice (Stream* vs) {
     check(vs->now_start_code() <= SCODE_MAX_SLICE, "Not on slice start header");
     this->mb_row           = vs->now_start_code() - 1;
@@ -899,9 +918,7 @@ void Picture::read_slice (Stream* vs) {
     }
     this->reset_pre_dc_coeff();
 
-    int mb_count = 0;
     while (!vs->next_bits_eq(0, 23)) {
-        printf("pic_type = %d, slice = %d, mb_count = %d\n", this->type, this->mb_row, mb_count++);
         this->read_mb(vs);
     }
 }
@@ -911,14 +928,14 @@ void Picture::read_mb (Stream* vs) {
     B1.get(vs);
     //printf("MB Address Increase: %d\n", B1.run);
     this-> mb_col += B1.run;
-    if (B1.run == MB_ESCAPE) {
-        this->mb_col += MB_ESCAPE - 1;
-        // DO something
-        printf("HAIYAA\n");
-        return;
-    }
     if (B1.run > 1)
         this->reset_pre_dc_coeff();
+    printf("pic_type = %d, slice = %d, mb_col = %d\n", this->type, this->mb_row, this->mb_col);
+    if (B1.run == MB_ESCAPE) {
+        // DO something
+        printf("MB ESCAPE HAIYAA\n");
+        return;
+    }
 
     // Read MB Modes
     switch (this->type) {
@@ -933,7 +950,6 @@ void Picture::read_mb (Stream* vs) {
         case PIC_TYPE_B:
             B4.get(vs);
             this->mb_mode = B4.run;
-            break;
             break;
     }
     this->mb_quant    = (this->mb_mode >> 6) & 1;
@@ -978,7 +994,7 @@ void Picture::read_mb (Stream* vs) {
         this->read_mvs(vs, 1);
     }
     if (this->mb_intra && this->concealment_mv)
-        vs->read(1); //marker bit
+        vs->read(1);  //marker bit
 
     // Pattern, only consider 420
     if (this->mb_pattern) {
@@ -995,42 +1011,16 @@ void Picture::read_mb (Stream* vs) {
     u8 del_y[6] = {0, 8, 0, 8, 0, 0};
     for (u8 i = 0; i < 6; ++i)
         if (mb_pattern_code & (1 << i)) {
-            printf("HI %d \n", i);
+            printf(" BLOCK %d \n", i);
             this->proc_block(vs, cc[i], this->mb_row * 16 + del_x[i],\
                                         this->mb_col * 16 + del_y[i]);
         }
-
-    //static int count = 0;
-    //if (count == 919)
-        //this->dump("dump.ppm");
-    //if (count == 950)
-        //exit(-1);
-    //count++;
-}
-
-void Picture::dump (char* filename) {
-    FILE* fp = fopen(filename, "w");
-    fprintf(fp, "P3\n%d %d\n255\n", this->horz_size, this->vert_size);
-    for (u16 i = 0; i < this->vert_size; ++i) {
-        for (u16 j = 0; j < this->horz_size; ++j) {
-            u32 index = idx2(i, j, this->horz_size);
-            i16 Y  = this->pixel[0][index];
-            i16 C1 = this->pixel[1][index] - 128;
-            i16 C2 = this->pixel[2][index] - 128;
-            u8 R = bandpass(1.0 * Y - 0.00093 * C1 + 1.401687 * C2);
-            u8 G = bandpass(1.0 * Y - 0.3437  * C1 - 0.71417  * C2);
-            u8 B = bandpass(1.0 * Y + 1.77216 * C1 + 0.00099  * C2);
-            fprintf(fp, "%d %d %d ", R, G, B);
-        }
-        fprintf(fp, "\n");
-    }
-    fclose(fp);
 }
 
 void Picture::read_mvs (Stream* vs, u8 s) {
+    printf("read_mvs: %d\n", s);
     if (this->mb_mv_count == 1) {
         // Suppose Frame
-        printf("HH\n");
         read_mv(vs, 0, s);
     }
     else {
@@ -1042,6 +1032,7 @@ void Picture::read_mvs (Stream* vs, u8 s) {
 }
 
 void Picture::read_mv (Stream* vs, u8 r, u8 s) {
+    printf("read_mv:  %d %d\n", r, s);
     B10.get(vs);
     this->mb_mv_code[r][s][0] = B10.run;
     if ((this->f_code[s][0] != 1) && (this->mb_mv_code[r][s][0] != 0))
@@ -1118,6 +1109,8 @@ void Picture::proc_block(Stream* vs, u8 cc, u16 x, u16 y) {
 //=====================================================
 
 int main (int argc, char* argv[]) {
+    B9.triverse();
+    B10.triverse();
     //B12.triverse();
     //B13.triverse();
     //B14.triverse();
@@ -1127,8 +1120,9 @@ int main (int argc, char* argv[]) {
     Seq_header* seq;
     Gop_header* gop_header;
     Picture*    pic_now = NULL;
-    Picture*    ref_f;
-    Picture*    ref_b;
+    Picture*    ref_f   = NULL;
+    Picture*    ref_b   = NULL;
+    char        pic_dump_name[128];
 
     u8 start_code;
     u8 pre_start_code;
@@ -1179,7 +1173,8 @@ int main (int argc, char* argv[]) {
             case SCODE_PIC:
                 if (pic_now != NULL) {
                     printf("Finish Decode Picture %d\n", pic_now->temp_ref);
-                    pic_now->dump("dump.ppm");
+                    sprintf(pic_dump_name, "pic/%d.ppm", pic_now->temp_ref);
+                    pic_now->dump(pic_dump_name);
                     switch (pic_now->type) {
                         case PIC_TYPE_I:
                             if (ref_f)
