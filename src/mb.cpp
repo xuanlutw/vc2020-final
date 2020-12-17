@@ -18,8 +18,9 @@ MB::MB (Stream* vs, Slice* slice) {
     this->slice->mb_col += B1.run;
     if (B1.run > 1)
         this->slice->reset_pre_dc_coeff();
-    printf("pic_type = %d, slice = %d, mb_col = %d\n", \
-            this->pic->type, this->slice->mb_row, this->slice->mb_col);
+    printf("pic_type = %d, slice = %d, mb_col = %d, mb_count = %d\n", \
+            this->pic->type, this->slice->mb_row, this->slice->mb_col, \
+            this->slice->mb_row * this->pic->horz_size / 16 + this->slice->mb_col);
 
     // Read MB Modes
     this->read_mode(vs);
@@ -42,8 +43,10 @@ MB::MB (Stream* vs, Slice* slice) {
     // Read Pattern, only consider 420 mode
     if (this->mb_pattern)
         this->pattern_code = B9.get(vs);
-    else
+    else if (mb_intra)
         this->pattern_code = 0xff;
+    else 
+        this->pattern_code = 0;
     printf("Pattern: %x\n", this->pattern_code);
 
 }
@@ -77,7 +80,7 @@ void MB::read_mode (Stream* vs) {
         else    // Default, pp. 63
             this->motion_type = 2;
     }
-    this->mv_count = 1;
+    this->mv_count = (this->motion_type == 1) + 1;
     this->dmv      = (this->motion_type == 3);
 
     // Read DCT type
@@ -85,7 +88,9 @@ void MB::read_mode (Stream* vs) {
                             (this->pic->frame_pred_frame_dct == 0) && \
                             (this->mb_intra || this->mb_pattern);
     if (this->decode_dct_type)
-        this->dct_type    = vs->read(1); 
+        this->dct_type    = vs->read(1);
+    else    // default value for frame pred, pp. 64
+        this->dct_type    = 0;
 }
 
 void MB::read_mvs (Stream* vs, u8 s) {
@@ -109,7 +114,7 @@ void MB::read_mv (Stream* vs, u8 r, u8 s) {
         this->dmvector[0] = B11.get(vs);
 
     this->mv_code[r][s][1] = B10.get(vs);
-    if ((this->pic->f_code[s][0] != 1) && (this->mv_code[r][s][1] != 0))
+    if ((this->pic->f_code[s][1] != 1) && (this->mv_code[r][s][1] != 0))
         this->mv_residular[r][s][1] = vs->read(this->pic->f_code[s][1] - 1);
     if (this->dmv == 1)
         this->dmvector[1] = B11.get(vs);

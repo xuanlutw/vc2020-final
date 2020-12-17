@@ -103,13 +103,17 @@ i16 Huffman::get (Stream* vs) {
     H_node* node_now = this->root;
     while (!node_now->is_terminal()) {
         if (vs->read(1)) {
+            //printf("1");
             check(node_now = node_now->pos, "Wrong Huffman code");
             if (this->is_B14 && this->is_DC && node_now == this->root->pos)
-                check(node_now->pos, "Wrong Huffman code");
+                check(node_now = node_now->pos, "Wrong Huffman code");
         }
-        else
+        else {
+            //printf("0");
             check(node_now = node_now->neg, "Wrong Huffman code");
+        }
     }
+    //printf("\n");
     this->type  = node_now->terminal_data()->type;
     this->run   = node_now->terminal_data()->run;
     this->level = node_now->terminal_data()->level;

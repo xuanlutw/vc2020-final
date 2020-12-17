@@ -141,7 +141,7 @@ void Picture::decode (Stream* vs) {
         vs->next_start_code();
         if (vs->now_start_code() > SCODE_MAX_SLICE || !vs->now_start_code()) {
             vs->keep_start_code();
-            this->dump();
+            //this->dump();
             printf("Finish Decode Picture %d\n", this->temp_ref);
             break;
         }

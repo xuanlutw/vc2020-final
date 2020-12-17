@@ -13,7 +13,7 @@ Block::Block (Stream* vs, i16 pre_dc_coeff, Huffman* DC, Huffman* AC, \
     if (AC) {   // Intra
         DC->get(vs);
         data[0] = (this->dc_coeff = pre_dc_coeff + DC->level);
-        for (int i = 1; i < 64; ++i) {
+        for (int i = 1; i <= 64; ++i) {
             i += AC->get(vs);
             if (AC->type == HUFFMAN_CODE_END)
                 break;
@@ -23,7 +23,7 @@ Block::Block (Stream* vs, i16 pre_dc_coeff, Huffman* DC, Huffman* AC, \
     }
     else {      // Inter
         DC->set_is_DC();
-        for (int i = 0; i < 64; ++i) {
+        for (int i = 0; i <= 64; ++i) {
             i += DC->get(vs);
             if (DC->type == HUFFMAN_CODE_END)
                 break;
