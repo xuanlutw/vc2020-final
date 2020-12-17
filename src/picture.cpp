@@ -1,9 +1,10 @@
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include "picture.h"
 #include "slice.h"
 
-Picture::Picture (Stream* vs, Seq* seq) {
+Picture::Picture (Stream* vs, Seq* seq, Picture* ref_f, Picture* ref_b) {
     this->temp_ref            = vs->read(10);
     this->type                = vs->read(3);
     this->vbv_delay           = vs->read(16);
@@ -26,9 +27,17 @@ Picture::Picture (Stream* vs, Seq* seq) {
     this->vert_size = ((seq->vert_size + 15) / 16) * 16;
     this->intra_q   = seq->intra_q;
     this->inter_q   = seq->inter_q;
-    this->pixel[0]  = new i16[this->horz_size * this->vert_size];
-    this->pixel[1]  = new i16[this->horz_size * this->vert_size];
-    this->pixel[2]  = new i16[this->horz_size * this->vert_size];
+    this->pixel[0]  = new i16[this->horz_size * this->vert_size]();
+    this->pixel[1]  = new i16[this->horz_size * this->vert_size / 4]();
+    this->pixel[2]  = new i16[this->horz_size * this->vert_size / 4]();
+    switch(this->type) {
+        case PIC_TYPE_P:
+            this->ref[0] = ref_b;
+            break;
+        case PIC_TYPE_B:
+            this->ref[0] = ref_f;
+            this->ref[1] = ref_b;
+    }
 
     // Read picture ext
     while (vs->next_start_code() == SCODE_EXT) {
@@ -116,14 +125,16 @@ void Picture::dump (char* filename) {
     fprintf(fp, "P3\n%d %d\n255\n", this->horz_size, this->vert_size);
     for (u16 i = 0; i < this->vert_size; ++i) {
         for (u16 j = 0; j < this->horz_size; ++j) {
-            u32 index = idx2(i, j, this->horz_size);
-            i16 Y  = this->pixel[0][index];
-            i16 C1 = this->pixel[1][index] - 128;
-            i16 C2 = this->pixel[2][index] - 128;
+            u32 idx_l = idx2(i, j, this->horz_size);
+            u32 idx_c = idx2(i/2, j/2, this->horz_size/2);
+            i16 Y  = this->pixel[0][idx_l];
+            i16 C1 = this->pixel[1][idx_c] - 128;
+            i16 C2 = this->pixel[2][idx_c] - 128;
             u8  R  = bandpass(1.0 * Y - 0.00093 * C1 + 1.401687 * C2);
             u8  G  = bandpass(1.0 * Y - 0.3437  * C1 - 0.71417  * C2);
             u8  B  = bandpass(1.0 * Y + 1.77216 * C1 + 0.00099  * C2);
             fprintf(fp, "%d %d %d ", R, G, B);
+            //fprintf(fp, "%d %d %d ", bandpass(Y), 0, 0);
         }
         fprintf(fp, "\n");
     }
@@ -147,5 +158,11 @@ void Picture::decode (Stream* vs) {
         }
         Slice slice(vs, this);
         slice.decode(vs);
+    }
+    for (u32 x = 0; x < this->horz_size * this->vert_size; ++x)
+            saturate_u8(this->pixel[0][x]);
+    for (u32 x = 0; x < this->horz_size * this->vert_size / 4; ++x) {
+            saturate_u8(this->pixel[1][x]);
+            saturate_u8(this->pixel[2][x]);
     }
 }

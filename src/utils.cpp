@@ -455,4 +455,3 @@ u8 bandpass (double val) {
     else
         return (u8) round(val);
 }
-

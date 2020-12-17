@@ -5,7 +5,7 @@
 
 class Picture {
     public:
-        Picture (Stream* vs, Seq* seq);
+        Picture (Stream* vs, Seq* seq, Picture* ref_f, Picture* ref_b);
         ~Picture ();
         void read_ext (Stream* vs);
         void print ();              // Print header info
@@ -19,6 +19,7 @@ class Picture {
         u16  vert_size;
         u8*  intra_q;
         u8*  inter_q;
+        Picture* ref[2];
 
         // Header
         u16 temp_ref;

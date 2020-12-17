@@ -23,6 +23,7 @@ Slice::Slice (Stream* vs, Picture* pic) {
 
 void Slice::decode (Stream* vs) {
     this->reset_pre_dc_coeff();
+    this->reset_pmv();
     while (!vs->next_bits_eq(0, 23)) {
         MB mb(vs, this);
         mb.decode(vs);
@@ -33,4 +34,11 @@ void Slice::reset_pre_dc_coeff() {
     this->pre_dc_coeff[0] = 1 << (this->pic->intra_dc_prec - 1);
     this->pre_dc_coeff[1] = 1 << (this->pic->intra_dc_prec - 1);
     this->pre_dc_coeff[2] = 1 << (this->pic->intra_dc_prec - 1);
+}
+
+void Slice::reset_pmv() {
+    for (u8 r = 0; r < 2; ++r)
+        for (u8 s = 0; s < 2; ++s)
+            for (u8 t = 0; t < 2; ++t)
+                this->pmv[r][s][t] = 0;
 }

@@ -61,6 +61,8 @@ extern u8 q_scale[2][32];
 #define idx(i, j) (8 * (i) + (j))
 #define idx2(i, j, x) ((x) * (i) + (j))
 #define sign(x) (((x) > 0) - ((x) < 0))
+#define abs(x) (((x)>0)?(x):(-(x)))
+#define saturate_u8(x) (x) = (x) > 255? 255: ((x) < 0? 0: (x))
 
 #define M_COS 200
 

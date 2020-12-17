@@ -13,7 +13,7 @@
 #include "block.h"
 
 int main (int argc, char* argv[]) {
-    //B9.triverse();
+    //B10.triverse();
     check(argc == 2, "Wrong parameters");
 
     Stream*  vs      = new Stream(argv[1]);
@@ -46,11 +46,11 @@ int main (int argc, char* argv[]) {
                                 delete ref_f;
                             if (ref_b)
                                 delete ref_b;
-                            ref_f = pic_now;
-                            ref_b = NULL;
+                            ref_f = NULL;
+                            ref_b = pic_now;
                             break;
                         case PIC_TYPE_P:
-                            if (ref_b) {
+                            if (ref_f) {
                                 delete ref_f;
                                 ref_f = ref_b;
                                 ref_b = pic_now;
@@ -62,7 +62,7 @@ int main (int argc, char* argv[]) {
                             break;
                     }
                 }
-                pic_now = new Picture(vs, seq);
+                pic_now = new Picture(vs, seq, ref_f, ref_b);
                 pic_now->print();
                 pic_now->decode(vs);
                 break;
