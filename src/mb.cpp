@@ -51,7 +51,6 @@ MB::MB (Stream* vs, Slice* slice) {
         this->read_mvs(vs, 1);
     if (this->mb_intra && this->pic->concealment_mv)
         vs->read(1);  //marker bit
-    this->update_mv();
     if (this->mb_intra && !this->pic->concealment_mv)
         this->slice->reset_pmv();
     if (this->pic->type == PIC_TYPE_P && !this->mb_intra && !this->mb_motion_f) {
@@ -139,6 +138,45 @@ void MB::read_mv (Stream* vs, u8 r, u8 s) {
         this->mv_residual[r][s][1] = vs->read(this->pic->f_code[s][1] - 1);
     if (this->dmv == 1)
         this->dmvector[1] = B11.get(vs);
+
+    // Update
+    for (u8 t = 0; t < 2; ++t) {
+        u8  r_size = this->pic->f_code[s][t] - 1;
+        u16 f      = 1 << r_size;
+        i16 high   =  16 * f - 1;
+        i16 low    = -16 * f;
+        i16 range  =  32 * f;
+        i16 delta;
+        if ((f == 1) || (this->mv_code[r][s][t] == 0))
+            delta = this->mv_code[r][s][t];
+        else {
+            delta = ((abs(this->mv_code[r][s][t]) - 1) * f) + \
+                    this->mv_residual[r][s][t] + 1;
+            if (this->mv_code[r][s][t] < 0)
+                delta = -delta;
+        }
+
+        // Suppose frame pred
+        this->mv[r][s][t] = this->slice->pmv[r][s][t] + delta;
+        if (this->mv[r][s][t] < low)
+            this->mv[r][s][t] += range;
+        if (this->mv[r][s][t] > high)
+            this->mv[r][s][t] -= range;
+
+        // Compute some derivate value
+        for (u8 cc = 0; cc < 3; ++cc) {
+            i16 reduce_mv = this->mv[r][s][t] / (1 + (cc > 0));
+            this->int_mv[cc][r][s][t] = (reduce_mv - (reduce_mv < 0)) / 2;
+            this->half_f[cc][r][s][t] = \
+                (this->int_mv[cc][r][s][t] * 2 != reduce_mv);
+            //if (!r && !s && !t)
+                //printf("%d %d %d %d\n", cc, reduce_mv, int_mv[cc][r][s][t], half_f[cc][r][s][t]);
+        }
+
+        // Again, suppose frame
+        this->slice->pmv[r][s][t] = this->mv[r][s][t];
+    }
+    //printf("PMV %d %d \n", this->slice->pmv[0][0][0], this->slice->pmv[0][0][1]);
 }
 
 void MB::decode (Stream* vs) {
@@ -153,7 +191,7 @@ void MB::decode (Stream* vs) {
         u16 x         = (this->slice->mb_row * 16 + del_x[counter]) >> (cc > 0);
         u16 y         = (this->slice->mb_col * 16 + del_y[counter]) >> (cc > 0);
         u16 horz_size = this->pic->horz_size >> (cc > 0);
-        if (!(this->pattern_code & (1 << counter)))
+        if (!(this->pattern_code & (1 << (5 - counter))))
             continue;
         if (this->mb_intra) {
             quant = this->pic->intra_q;
@@ -170,10 +208,7 @@ void MB::decode (Stream* vs) {
                 this->pic->intra_dc_prec, this->pic->q_scale_type, this->q_scale_code);
         for (int i = 0; i < 8; ++i)
             for (int j = 0; j < 8; ++j)
-                if (this->mb_intra)
-                    this->pic->pixel[cc][idx2(x + i, y + j, horz_size)]  = block.data[idx(i, j)];
-                else
-                    this->pic->pixel[cc][idx2(x + i, y + j, horz_size)] += block.data[idx(i, j)];
+                this->pic->pixel[cc][idx2(x + i, y + j, horz_size)] += block.data[idx(i, j)];
         this->slice->pre_dc_coeff[cc] = block.dc_coeff;
     }
     if (!this->mb_intra)
@@ -199,34 +234,24 @@ void MB::pred () {
                     case PIC_TYPE_B:
                         printf("B FRAME MC HAIYAA\n");
                 }
-                //if (this->mb_motion_f && this->mb_motion_b)
-                    //this->pic->pixel[cc][idx2(x + i, y + j, horz_size)] = \
-                            //(this->mv_pred(0, cc, x + i, y + j) + \
-                             //this->mv_pred(1, cc, x + i, y + j)) >> 1;
-                //else if (this->mb_motion_f)
-                    //this->pic->pixel[cc][idx2(x + i, y + j, horz_size)] = \
-                            //(this->mv_pred(0, cc, x + i, y + j));
-                //else if (this->mb_motion_b)
-                    //this->pic->pixel[cc][idx2(x + i, y + j, horz_size)] = \
-                            //(this->mv_pred(1, cc, x + i, y + j));
     }
 }
 
 u8 MB::pred_pixel (u8 s, u8 cc, u16 x, u16 y) {
-    u16 horz_size = cc? (this->pic->horz_size >> 1): this->pic->horz_size;
-    i8  int_mv_0  = this->int_mv[0][s][0] >> (cc > 0);
-    i8  int_mv_1  = this->int_mv[0][s][1] >> (cc > 0);
+    u16 horz_size = this->pic->horz_size >> (cc > 0);
+    i16 int_mv_0  = this->int_mv[cc][0][s][0];
+    i16 int_mv_1  = this->int_mv[cc][0][s][1];
     u32 idx_1     = idx2(int_mv_1 + x    , int_mv_0 + y    , horz_size);
     u32 idx_2     = idx2(int_mv_1 + x + 1, int_mv_0 + y    , horz_size);
     u32 idx_3     = idx2(int_mv_1 + x    , int_mv_0 + y + 1, horz_size);
     u32 idx_4     = idx2(int_mv_1 + x + 1, int_mv_0 + y + 1, horz_size);
 
-    if      (!this->half_f[0][s][0] && !this->half_f[0][s][1])
+    if      (!this->half_f[cc][0][s][0] && !this->half_f[cc][0][s][1])
         return ((u16)this->pic->ref[s]->pixel[cc][idx_1]);
-    else if ( this->half_f[0][s][0] && !this->half_f[0][s][1])
+    else if ( this->half_f[cc][0][s][0] && !this->half_f[cc][0][s][1])
         return ((u16)this->pic->ref[s]->pixel[cc][idx_1] + \
                      this->pic->ref[s]->pixel[cc][idx_3]) >> 1;
-    else if (!this->half_f[0][s][0] &&  this->half_f[0][s][1])
+    else if (!this->half_f[cc][0][s][0] &&  this->half_f[cc][0][s][1])
         return ((u16)this->pic->ref[s]->pixel[cc][idx_1] + \
                      this->pic->ref[s]->pixel[cc][idx_2]) >> 1;
     else
@@ -236,52 +261,12 @@ u8 MB::pred_pixel (u8 s, u8 cc, u16 x, u16 y) {
                      this->pic->ref[s]->pixel[cc][idx_4]) >> 2;
 }
 
-void MB::update_mv () {
-    for (u8 r = 0; r < 2; ++r)
-        for (u8 s = 0; s < 2; ++s)
-            for (u8 t = 0; t < 2; ++t) {
-                u8  r_size = this->pic->f_code[s][t] - 1;
-                u16 f      = 1 << r_size;
-                i16 high   =  16 * f - 1;
-                i16 low    = -16 * f;
-                i16 range  =  32 * f;
-                i16 delta;
-                if ((f == 1) || (this->mv_code[r][s][t] == 0))
-                    delta = this->mv_code[r][s][t];
-                else {
-                    delta = ((abs(this->mv_code[r][s][t]) - 1) * f) + \
-                            this->mv_residual[r][s][t] + 1;
-                    if (this->mv_code[r][s][t] < 0)
-                        delta = -delta;
-                }
-
-                // Suppose frame pred
-                this->mv[r][s][t] = this->slice->pmv[r][s][t] + delta;
-                if (this->mv[r][s][t] < low)
-                    this->mv[r][s][t] += range;
-                if (this->mv[r][s][t] > high)
-                    this->mv[r][s][t] -= range;
-
-                // Compute some derivate value
-                this->int_mv[r][s][t] = this->mv[r][s][t] >> 1;
-                if (this->mv[r][s][t] == this->int_mv[r][s][t] * 2)
-                    this->half_f[r][s][t] = 0;
-                else
-                    this->half_f[r][s][t] = 1;
-
-                if (r == 0 && s == 0 && t == 0) {
-                    if (this->pic->type == PIC_TYPE_P && this->mv_code[r][s][t] < -20)
-                        break;
-                }
-
-                // Again, suppose frame
-                this->slice->pmv[r][s][t] = this->mv[r][s][t];
-            }
-}
-
 void MB::reset_mv () {
     for (u8 r = 0; r < 2; ++r)
         for (u8 s = 0; s < 2; ++s)
-            for (u8 t = 0; t < 2; ++t)
-                mv[r][s][t] = int_mv[r][s][t] = half_f[r][s][t] = 0;
+            for (u8 t = 0; t < 2; ++t) {
+                mv[r][s][t] = 0;
+                for (u8 cc = 0; cc < 3; ++cc)
+                    int_mv[cc][r][s][t] = half_f[cc][r][s][t] = 0;
+            }
 }
