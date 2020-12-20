@@ -30,6 +30,7 @@ Picture::Picture (Stream* vs, Seq* seq, Picture* ref_f, Picture* ref_b) {
     this->pixel[0]  = new i16[this->horz_size * this->vert_size]();
     this->pixel[1]  = new i16[this->horz_size * this->vert_size / 4]();
     this->pixel[2]  = new i16[this->horz_size * this->vert_size / 4]();
+    this->seq       = seq;
     switch(this->type) {
         case PIC_TYPE_P:
             this->ref[0] = ref_b;
@@ -123,8 +124,8 @@ void Picture::print () {
 void Picture::dump (char* filename) {
     FILE* fp = fopen(filename, "w");
     fprintf(fp, "P3\n%d %d\n255\n", this->horz_size, this->vert_size);
-    for (u16 i = 0; i < this->vert_size; ++i) {
-        for (u16 j = 0; j < this->horz_size; ++j) {
+    for (u16 i = 0; i < this->seq->vert_size; ++i) {
+        for (u16 j = 0; j < this->seq->horz_size; ++j) {
             u32 idx_l = idx2(i, j, this->horz_size);
             u32 idx_c = idx2(i/2, j/2, this->horz_size/2);
             i16 Y  = this->pixel[0][idx_l];
@@ -147,12 +148,32 @@ void Picture::dump () {
     this->dump(dump_name);
 }
 
+void Picture::write_YUV (FILE* fp) {
+    for (u16 i = 0; i < this->seq->vert_size; ++i)
+        for (u16 j = 0; j < this->seq->horz_size; ++j) {
+            u8 data = this->pixel[0][idx2(i, j, this->horz_size)];
+            fwrite(&data, sizeof(u8), 1, fp);
+        }
+    fflush(fp);
+    for (u16 i = 0; i < this->seq->vert_size / 2; ++i)
+        for (u16 j = 0; j < this->seq->horz_size / 2; ++j) {
+            u8 data = this->pixel[1][idx2(i, j, this->horz_size/2)];
+            fwrite(&data, sizeof(u8), 1, fp);
+        }
+    fflush(fp);
+    for (u16 i = 0; i < this->seq->vert_size / 2; ++i)
+        for (u16 j = 0; j < this->seq->horz_size / 2; ++j) {
+            u8 data = this->pixel[2][idx2(i, j, this->horz_size/2)];
+            fwrite(&data, sizeof(u8), 1, fp);
+        }
+    fflush(fp);
+}
+
 void Picture::decode (Stream* vs) {
     while (true) {
         vs->next_start_code();
         if (vs->now_start_code() > SCODE_MAX_SLICE || !vs->now_start_code()) {
             vs->keep_start_code();
-            //this->dump();
             printf("Finish Decode Picture %d\n", this->temp_ref);
             break;
         }

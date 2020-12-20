@@ -11,6 +11,7 @@ class Picture {
         void print ();              // Print header info
         void dump (char* filename); // Dump pixel value in RGB ppm format
         void dump ();               // Dump with default name
+        void write_YUV (FILE* fp);  // Write to to file in YUV format
         void decode (Stream* vs);
 
         // Essentail info
@@ -19,6 +20,7 @@ class Picture {
         u16  vert_size;
         u8*  intra_q;
         u8*  inter_q;
+        Seq* seq;
         Picture* ref[2];
 
         // Header
