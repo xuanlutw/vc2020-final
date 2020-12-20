@@ -1,4 +1,4 @@
-#include <cstdio>
+# include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include "picture.h"
@@ -27,9 +27,9 @@ Picture::Picture (Stream* vs, Seq* seq, Picture* ref[2]) {
     this->vert_size = ((seq->vert_size + 15) / 16) * 16;
     this->intra_q   = seq->intra_q;
     this->inter_q   = seq->inter_q;
-    this->pixel[0]  = new i16[this->horz_size * this->vert_size]();
-    this->pixel[1]  = new i16[this->horz_size * this->vert_size / 4]();
-    this->pixel[2]  = new i16[this->horz_size * this->vert_size / 4]();
+    this->pixel[0]  = new u8[this->horz_size * this->vert_size]();
+    this->pixel[1]  = new u8[this->horz_size * this->vert_size / 4]();
+    this->pixel[2]  = new u8[this->horz_size * this->vert_size / 4]();
     this->seq       = seq;
     switch(this->type) {
         case PIC_TYPE_P:
@@ -150,22 +150,14 @@ void Picture::dump () {
 
 void Picture::write_YUV (FILE* fp) {
     for (u16 i = 0; i < this->seq->vert_size; ++i)
-        for (u16 j = 0; j < this->seq->horz_size; ++j) {
-            u8 data = this->pixel[0][idx2(i, j, this->horz_size)];
-            fwrite(&data, sizeof(u8), 1, fp);
-        }
-    fflush(fp);
+        fwrite(this->pixel[0] + i * this->horz_size, \
+               sizeof(u8), this->seq->horz_size, fp);
     for (u16 i = 0; i < this->seq->vert_size / 2; ++i)
-        for (u16 j = 0; j < this->seq->horz_size / 2; ++j) {
-            u8 data = this->pixel[1][idx2(i, j, this->horz_size/2)];
-            fwrite(&data, sizeof(u8), 1, fp);
-        }
-    fflush(fp);
+        fwrite(this->pixel[1] + i * this->horz_size/2, \
+               sizeof(u8), this->seq->horz_size/2, fp);
     for (u16 i = 0; i < this->seq->vert_size / 2; ++i)
-        for (u16 j = 0; j < this->seq->horz_size / 2; ++j) {
-            u8 data = this->pixel[2][idx2(i, j, this->horz_size/2)];
-            fwrite(&data, sizeof(u8), 1, fp);
-        }
+        fwrite(this->pixel[2] + i * this->horz_size/2, \
+               sizeof(u8), this->seq->horz_size/2, fp);
     fflush(fp);
 }
 
@@ -179,11 +171,5 @@ void Picture::decode (Stream* vs) {
         }
         Slice slice(vs, this);
         slice.decode(vs);
-    }
-    for (u32 x = 0; x < this->horz_size * this->vert_size; ++x)
-            saturate_u8(this->pixel[0][x]);
-    for (u32 x = 0; x < this->horz_size * this->vert_size / 4; ++x) {
-            saturate_u8(this->pixel[1][x]);
-            saturate_u8(this->pixel[2][x]);
     }
 }

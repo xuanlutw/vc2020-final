@@ -15,7 +15,7 @@ class Picture {
         void decode (Stream* vs);
 
         // Essentail info
-        i16* pixel[3];
+        u8*  pixel[3];
         u16  horz_size;
         u16  vert_size;
         u8*  intra_q;

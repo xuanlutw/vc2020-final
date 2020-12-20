@@ -1,5 +1,6 @@
 #include <cstdio>
 #include <cstdlib>
+#include <cmath>
 #include "picture.h"
 #include "slice.h"
 #include "mb.h"
@@ -71,7 +72,7 @@ MB::MB (Stream* vs, Slice* slice) {
         this->pattern_code = 0xff;
     else 
         this->pattern_code = 0;
-    printf("Pattern: %x\n", this->pattern_code);
+    //printf("Pattern: %x\n", this->pattern_code);
 }
 
 void MB::read_mode (Stream* vs) {
@@ -119,7 +120,7 @@ void MB::read_mode (Stream* vs) {
 }
 
 void MB::read_mvs (Stream* vs, u8 s) {
-    printf("read_mvs: %d\n", s);
+    //printf("read_mvs: %d\n", s);
     if (this->mv_count == 1)    // Suppose Frame
         read_mv(vs, 0, s);
     else {
@@ -131,8 +132,7 @@ void MB::read_mvs (Stream* vs, u8 s) {
 }
 
 void MB::read_mv (Stream* vs, u8 r, u8 s) {
-    printf("read_mv:  %d %d\n", r, s);
-
+    //printf("read_mv:  %d %d\n", r, s);
     this->mv_code[r][s][0] = B10.get(vs);
     if ((this->pic->f_code[s][0] != 1) && (this->mv_code[r][s][0] != 0))
         this->mv_residual[r][s][0] = vs->read(this->pic->f_code[s][0] - 1);
@@ -220,14 +220,16 @@ void MB::pred () {
                             this->pred_pixel(0, cc, x + i, y + j);
                         break;
                     case PIC_TYPE_B:
-                        if (this->mb_motion_f)
-                            this->pic->pixel[cc][idx2(x + i, y + j, horz_size)] += \
-                                (this->pred_pixel(0, cc, x + i, y + j));
-                        if (this->mb_motion_b)
-                            this->pic->pixel[cc][idx2(x + i, y + j, horz_size)] += \
-                                (this->pred_pixel(1, cc, x + i, y + j));
                         if (this->mb_motion_f && this->mb_motion_b)
-                            this->pic->pixel[cc][idx2(x + i, y + j, horz_size)] >>= 1;
+                            this->pic->pixel[cc][idx2(x + i, y + j, horz_size)] = \
+                                (this->pred_pixel(0, cc, x + i, y + j) +
+                                 this->pred_pixel(1, cc, x + i, y + j)) >> 1;
+                        else if (this->mb_motion_f)
+                            this->pic->pixel[cc][idx2(x + i, y + j, horz_size)] = \
+                                (this->pred_pixel(0, cc, x + i, y + j));
+                        else if (this->mb_motion_b)
+                            this->pic->pixel[cc][idx2(x + i, y + j, horz_size)] = \
+                                (this->pred_pixel(1, cc, x + i, y + j));
                         break;
                 }
     }
@@ -241,20 +243,27 @@ u8 MB::pred_pixel (u8 s, u8 cc, u16 x, u16 y) {
     u32 idx_2     = idx2(int_mv_1 + x + 1, int_mv_0 + y    , horz_size);
     u32 idx_3     = idx2(int_mv_1 + x    , int_mv_0 + y + 1, horz_size);
     u32 idx_4     = idx2(int_mv_1 + x + 1, int_mv_0 + y + 1, horz_size);
+    u16 data      = 0;
 
-    if      (!this->half_f[cc][0][s][0] && !this->half_f[cc][0][s][1])
-        return ((u16)this->pic->ref[s]->pixel[cc][idx_1]);
-    else if ( this->half_f[cc][0][s][0] && !this->half_f[cc][0][s][1])
-        return ((u16)this->pic->ref[s]->pixel[cc][idx_1] + \
-                     this->pic->ref[s]->pixel[cc][idx_3]) >> 1;
-    else if (!this->half_f[cc][0][s][0] &&  this->half_f[cc][0][s][1])
-        return ((u16)this->pic->ref[s]->pixel[cc][idx_1] + \
-                     this->pic->ref[s]->pixel[cc][idx_2]) >> 1;
-    else
-        return ((u16)this->pic->ref[s]->pixel[cc][idx_1] + \
-                     this->pic->ref[s]->pixel[cc][idx_2] + \
-                     this->pic->ref[s]->pixel[cc][idx_3] + \
-                     this->pic->ref[s]->pixel[cc][idx_4]) >> 2;
+    if (!this->half_f[cc][0][s][0] && !this->half_f[cc][0][s][1])
+        return (this->pic->ref[s]->pixel[cc][idx_1]);
+    else if ( this->half_f[cc][0][s][0] && !this->half_f[cc][0][s][1]) {
+        data = (this->pic->ref[s]->pixel[cc][idx_1] + \
+                this->pic->ref[s]->pixel[cc][idx_3]);
+        return (data > 0)? (data + 1) >> 1: -((-data + 1) >> 1);
+    }
+    else if (!this->half_f[cc][0][s][0] &&  this->half_f[cc][0][s][1]) {
+        data = (this->pic->ref[s]->pixel[cc][idx_1] + \
+                this->pic->ref[s]->pixel[cc][idx_2]);
+        return (data > 0)? (data + 1) >> 1: -((-data + 1) >> 1);
+    }
+    else {
+        data = (this->pic->ref[s]->pixel[cc][idx_1] + \
+                this->pic->ref[s]->pixel[cc][idx_2] + \
+                this->pic->ref[s]->pixel[cc][idx_3] + \
+                this->pic->ref[s]->pixel[cc][idx_4]);
+        return (data > 0)?  (data + 2) >> 2: -((-data + 2) >> 2);
+    }
 }
 
 void MB::decode (Stream* vs) {
@@ -286,10 +295,11 @@ void MB::decode (Stream* vs) {
                 this->pic->intra_dc_prec, this->pic->q_scale_type, this->q_scale_code);
         for (int i = 0; i < 8; ++i)
             for (int j = 0; j < 8; ++j)
-                this->pic->pixel[cc][idx2(x + i, y + j, horz_size)] += block.data[idx(i, j)];
+                this->pic->pixel[cc][idx2(x + i, y + j, horz_size)] = \
+                    saturate(this->pic->pixel[cc][idx2(x + i, y + j, horz_size)] + \
+                             block.data[idx(i, j)]);
         this->slice->pre_dc_coeff[cc] = block.dc_coeff;
     }
     if (!this->mb_intra)
         this->slice->reset_pre_dc_coeff();
 }
-

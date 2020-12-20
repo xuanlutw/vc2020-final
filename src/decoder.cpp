@@ -38,12 +38,13 @@ FILE* init_open_mode(Seq* seq, int argc, char* argv[]) {
                 sprintf(fps,    "%lf", seq->frame_rate);
                 sprintf(width,  "%d",  seq->horz_size);
                 sprintf(height, "%d",  seq->vert_size);
-                execl("/bin/vlc", "vlc", \
-                        "--demux", "rawvideo", \
-                        "--rawvid-fps", fps, \
-                        "--rawvid-width", width, \
-                        "--rawvid-height", height, \
-                        "--rawvid-chroma", "I420", "-", NULL);
+                execl("/bin/vlc",        "vlc",      \
+                      "--demux",         "rawvideo", \
+                      "--rawvid-fps",    fps,        \
+                      "--rawvid-width",  width,      \
+                      "--rawvid-height", height,     \
+                      "--rawvid-chroma", "I420",     \
+                      "-", NULL);
                 check(0, "Exec vlc fail!");
             }
             break;
@@ -51,7 +52,6 @@ FILE* init_open_mode(Seq* seq, int argc, char* argv[]) {
             check(yuv_fp = fopen(argv[2], "w"), "Open file %s fail!", argv[2]);
             break;
     }
-    printf("%p\n", yuv_fp);
     return yuv_fp;
 }
 
@@ -71,6 +71,8 @@ int main (int argc, char* argv[]) {
         //printf("Start Code: %x\n", vs->now_start_code());
         switch (vs->now_start_code()) {
             case SCODE_SEQ:
+                if (seq)
+                    delete seq;
                 seq = new Seq(vs);
                 seq->print();
                 if (!yuv_fp)

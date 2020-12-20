@@ -54,41 +54,39 @@ void Block::inverse_scan () {
 void Block::inverse_q (u8* quant, \
                        u8 intra_dc_prec, u8 q_scale_type, u8 q_scale_code) {
     // intra_dc_prec = 0 indicate inter
-    i64 sum = 0;
+    i64 sum         = 0;
+    u8  q_scale_val = q_scale[q_scale_type][q_scale_code];
 
     // IQ
-    for (int v = 0; v < 8; v++)
-        for (int u = 0; u < 8; u++)
-            if (!u && !v && intra_dc_prec) { // Inter DC coeff
+    for (u8 v = 0; v < 8; v++)
+        for (u8 u = 0; u < 8; u++)
+            if (!u && !v && intra_dc_prec) // Inter DC coeff
                 switch (intra_dc_prec) {
                     case 8:
-                        data[idx(v, u)] = 8 * data[idx(v, u)];
+                        data[0] *= 8;
                         break;
                     case 9:
-                        data[idx(v, u)] = 4 * data[idx(v, u)];
+                        data[0] *= 4;
                         break;
                     case 10:
-                        data[idx(v, u)] = 2 * data[idx(v, u)];
+                        data[0] *= 2;
                         break;
                     case 11:
-                        data[idx(v, u)] = 1 * data[idx(v, u)];
+                        data[0] *= 1;
                         break;
                 }
-            }
             else {  // Other coeff
                 if (intra_dc_prec)
-                    data[idx(v, u)] = \
-                        (data[idx(v, u)] * quant[idx(v, u)] * \
-                        q_scale[q_scale_type][q_scale_code] * 2) / 32;
+                    data[idx(v, u)] = (2 * data[idx(v, u)]) * \
+                                      quant[idx(v, u)] * q_scale_val / 32;
                 else
-                    data[idx(v, u)] = \
-                        ((data[idx(v, u)] * 2 + sign(data[idx(v, u)])) * \
-                        quant[idx(v, u)] * q_scale[q_scale_type][q_scale_code]) / 32;
+                    data[idx(v, u)] = (2 * data[idx(v, u)] + sign(data[idx(v, u)])) * \
+                                      quant[idx(v, u)] * q_scale_val / 32;
             }
 
     // Saturation
-    for (int v = 0; v < 8; v++)
-        for (int u = 0; u < 8; u++) {
+    for (u8 v = 0; v < 8; v++)
+        for (u8 u = 0; u < 8; u++) {
             if (data[idx(v, u)] > 2047)
                 data[idx(v, u)] = 2047;
             else if (data[idx(v, u)] < -2048 )
@@ -97,11 +95,11 @@ void Block::inverse_q (u8* quant, \
         }
 
     // Mismatch control
-    if ((sum & 1) == 0) {
-        if ((data[idx(7, 7)] & 1) != 0)
-            data[idx(7, 7)] = data[idx(7, 7)] - 1;
+    if (!(sum & 1)) {
+        if (data[idx(7, 7)] & 1)
+            ++data[idx(7, 7)];
         else
-            data[idx(7, 7)] = data[idx(7, 7)] + 1;
+            --data[idx(7, 7)];
     }
 }
 
