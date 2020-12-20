@@ -28,6 +28,8 @@ FILE* init_open_mode(Seq* seq, int argc, char* argv[]) {
             }
             else {
                 close(STDIN_FILENO);
+                close(STDOUT_FILENO);
+                close(STDERR_FILENO);
                 close(pipe_fd[1]);
                 dup2(pipe_fd[0], STDIN_FILENO);
                 char width[32];

@@ -63,6 +63,7 @@ extern u8 q_scale[2][32];
 #define sign(x) (((x) > 0) - ((x) < 0))
 #define abs(x) (((x)>0)?(x):(-(x)))
 #define saturate_u8(x) (x) = (x) > 255? 255: ((x) < 0? 0: (x))
+#define coef(x, y) (0.5 / cos((x) * M_PI / (y)));
 
 #define M_COS 200
 
