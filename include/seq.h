@@ -18,6 +18,7 @@ class Seq {
         u16 vbv_buf_size;
         u8  intra_q[64];
         u8  inter_q[64];
+        double frame_rate;
 
         // Ext
         u8  profil_level_id;

@@ -5,7 +5,7 @@
 
 class Picture {
     public:
-        Picture (Stream* vs, Seq* seq, Picture* ref_f, Picture* ref_b);
+        Picture (Stream* vs, Seq* seq, Picture* ref[2]);
         ~Picture ();
         void read_ext (Stream* vs);
         void print ();              // Print header info

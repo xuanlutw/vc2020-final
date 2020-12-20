@@ -23,6 +23,32 @@ Seq::Seq (Stream* vs) {
     else
         for (int i = 0; i < 64; ++i)
             this->inter_q[i] = default_inter_q[i];
+    switch (this->frame_rate_code) {
+        case 1:
+            this->frame_rate = 24000. / 1001.;
+            break;
+        case 2:
+            this->frame_rate = 24.;
+            break;
+        case 3:
+            this->frame_rate = 25.;
+            break;
+        case 4:
+            this->frame_rate = 30000. / 1001.;
+            break;
+        case 5:
+            this->frame_rate = 30.;
+            break;
+        case 6:
+            this->frame_rate = 50.;
+            break;
+        case 7:
+            this->frame_rate = 60000. / 1001.;
+            break;
+        case 8:
+            this->frame_rate = 60.;
+            break;
+    }
 
     // Read sequence ext
     while (vs->next_start_code() == SCODE_EXT) {
@@ -78,6 +104,7 @@ void Seq::print () {
     printf("Vertical size    : %d\n", this->vert_size);
     printf("Aspect ratio     : %d\n", this->aspect_ratio);
     printf("Frame rate code  : %d\n", this->frame_rate_code);
+    printf("Frame rate       : %lf\n",this->frame_rate);
     printf("Bit rate         : %d\n", this->bit_rate);
     printf("VBV buf size     : %d\n", this->vbv_buf_size);
     printf("Intra quantizer  :");

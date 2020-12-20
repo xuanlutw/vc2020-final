@@ -4,7 +4,7 @@
 #include "picture.h"
 #include "slice.h"
 
-Picture::Picture (Stream* vs, Seq* seq, Picture* ref_f, Picture* ref_b) {
+Picture::Picture (Stream* vs, Seq* seq, Picture* ref[2]) {
     this->temp_ref            = vs->read(10);
     this->type                = vs->read(3);
     this->vbv_delay           = vs->read(16);
@@ -33,11 +33,11 @@ Picture::Picture (Stream* vs, Seq* seq, Picture* ref_f, Picture* ref_b) {
     this->seq       = seq;
     switch(this->type) {
         case PIC_TYPE_P:
-            this->ref[0] = ref_b;
+            this->ref[0] = ref[1];
             break;
         case PIC_TYPE_B:
-            this->ref[0] = ref_f;
-            this->ref[1] = ref_b;
+            this->ref[0] = ref[0];
+            this->ref[1] = ref[1];
     }
 
     // Read picture ext

@@ -206,14 +206,14 @@ void Block::inverse_DCT1_fast () {
         g[7] *= C5_16;
 
         // Stage 8
-        tmp_data[idx(0, i)] = (g[0] + g[4]);
-        tmp_data[idx(1, i)] = (g[1] + g[5]);
-        tmp_data[idx(3, i)] = (g[2] + g[6]);
-        tmp_data[idx(2, i)] = (g[3] + g[7]);
-        tmp_data[idx(7, i)] = (g[0] - g[4]);
-        tmp_data[idx(6, i)] = (g[1] - g[5]);
-        tmp_data[idx(4, i)] = (g[2] - g[6]);
-        tmp_data[idx(5, i)] = (g[3] - g[7]);
+        tmp_data[idx(0, i)] = round(g[0] + g[4]);
+        tmp_data[idx(1, i)] = round(g[1] + g[5]);
+        tmp_data[idx(3, i)] = round(g[2] + g[6]);
+        tmp_data[idx(2, i)] = round(g[3] + g[7]);
+        tmp_data[idx(7, i)] = round(g[0] - g[4]);
+        tmp_data[idx(6, i)] = round(g[1] - g[5]);
+        tmp_data[idx(4, i)] = round(g[2] - g[6]);
+        tmp_data[idx(5, i)] = round(g[3] - g[7]);
     }
     memcpy(this->data, tmp_data, sizeof(i16) * 64);
 }

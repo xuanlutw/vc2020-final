@@ -7,12 +7,14 @@
 class MB {
     public:
         MB (Stream* vs, Slice* slice);
-        void read_mode (Stream* vs);
-        void read_mvs (Stream* vs, u8 s);
-        void read_mv (Stream* vs, u8 r, u8 s);
-        void reset_mv ();
-        void pred ();
-        u8   pred_pixel (u8 s, u8 cc, u16 x, u16 y);
+        void read_mode (Stream* vs);            // 6.2.5.1
+        void read_mvs (Stream* vs, u8 s);       // 6.2.5.2
+        void read_mv (Stream* vs, u8 r, u8 s);  // 6.2.5.2.1
+        void comp_mv (u8 r, u8 s, u8 t);        // 7.6.4 first part & 7.6.3.7
+        void reset_mv ();                       // Set mv = 0
+        void set_mv ();                         // Set mv = pmv
+        void pred ();                           // Do motion compensation
+        u8   pred_pixel (u8 s, u8 cc, u16 x, u16 y);    // Single pixel value
         void decode (Stream* vs);
 
         Picture* pic;
@@ -33,7 +35,7 @@ class MB {
         u8 dct_type;
         u8 mv_field_select[2][2];
         i8 mv_code[2][2][2];
-        i8 mv_residual[2][2][0];
+        i8 mv_residual[2][2][2];
         u8 dmvector[2];
 
         u8 q_scale_code;

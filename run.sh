@@ -1,3 +1,2 @@
-#make clean
 make
-./decoder video/bipolar_2.m2v
+./decoder video/bipolar_b.m2v

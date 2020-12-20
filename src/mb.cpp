@@ -22,7 +22,11 @@ MB::MB (Stream* vs, Slice* slice) {
                     this->pred();
                     break;
                 case PIC_TYPE_B:
-                    printf("SKIP B PICTURE HAIYAA\n");
+                    this->mb_motion_f = this->slice->pre_mb_motion_f;
+                    this->mb_motion_b = this->slice->pre_mb_motion_b;
+                    this->set_mv();
+                    this->pred();
+                    break;
             }
         }
         if (B1.run != MB_ESCAPE) {
@@ -39,9 +43,9 @@ MB::MB (Stream* vs, Slice* slice) {
 
     // Read MB Q scale code
     if (this->mb_quant)
-        q_scale_code = vs->read(5);
+        this->q_scale_code = vs->read(5);
     else
-        q_scale_code = this->slice->q_scale_code;
+        this->q_scale_code = this->slice->q_scale_code;
 
     // Read MV
     if ((this->mb_motion_f) || 
@@ -71,7 +75,7 @@ MB::MB (Stream* vs, Slice* slice) {
 }
 
 void MB::read_mode (Stream* vs) {
-    u8 mode;
+    u8 mode = 0;
     switch (this->pic->type) {
         case PIC_TYPE_I:
             mode = B2.get(vs);
@@ -90,6 +94,8 @@ void MB::read_mode (Stream* vs) {
     this->mb_intra    = (mode >> 2) & 1;
     this->stwcf       = (mode >> 1) & 1; 
     this->p_stwc      = (mode >> 0) & 1; 
+    this->slice->pre_mb_motion_f = this->mb_motion_f;
+    this->slice->pre_mb_motion_b = this->mb_motion_b;
     printf("MB Type: %d\n", mode);
 
     // Read MV info, suppose frame pred and non scalable
@@ -163,20 +169,92 @@ void MB::read_mv (Stream* vs, u8 r, u8 s) {
         if (this->mv[r][s][t] > high)
             this->mv[r][s][t] -= range;
 
-        // Compute some derivate value
-        for (u8 cc = 0; cc < 3; ++cc) {
-            i16 reduce_mv = this->mv[r][s][t] / (1 + (cc > 0));
-            this->int_mv[cc][r][s][t] = (reduce_mv - (reduce_mv < 0)) / 2;
-            this->half_f[cc][r][s][t] = \
-                (this->int_mv[cc][r][s][t] * 2 != reduce_mv);
-            //if (!r && !s && !t)
-                //printf("%d %d %d %d\n", cc, reduce_mv, int_mv[cc][r][s][t], half_f[cc][r][s][t]);
-        }
-
         // Again, suppose frame
         this->slice->pmv[r][s][t] = this->mv[r][s][t];
+        this->comp_mv(r, s, t);
     }
-    //printf("PMV %d %d \n", this->slice->pmv[0][0][0], this->slice->pmv[0][0][1]);
+}
+
+void MB::comp_mv (u8 r, u8 s, u8 t) {
+    for (u8 cc = 0; cc < 3; ++cc) {
+        i16 reduce_mv = this->mv[r][s][t] / (1 + (cc > 0));
+        this->int_mv[cc][r][s][t] = (reduce_mv - (reduce_mv < 0)) / 2;
+        this->half_f[cc][r][s][t] = \
+            (this->int_mv[cc][r][s][t] * 2 != reduce_mv);
+    }
+}
+
+void MB::reset_mv () {
+    for (u8 r = 0; r < 2; ++r)
+        for (u8 s = 0; s < 2; ++s)
+            for (u8 t = 0; t < 2; ++t) {
+                this->mv[r][s][t] = 0;
+                for (u8 cc = 0; cc < 3; ++cc)
+                    this->int_mv[cc][r][s][t] = this->half_f[cc][r][s][t] = 0;
+            }
+}
+
+void MB::set_mv () {
+    for (u8 r = 0; r < 2; ++r)
+        for (u8 s = 0; s < 2; ++s)
+            for (u8 t = 0; t < 2; ++t) {
+                this->mv[r][s][t] = this->slice->pmv[r][s][t];
+                this->comp_mv(r, s, t);
+            }
+}
+
+void MB::pred () {
+    u8  ccs[6]   = {0, 0, 0, 0, 1, 2};
+    u8  del_x[6] = {0, 0, 8, 8, 0, 0};
+    u8  del_y[6] = {0, 8, 0, 8, 0, 0};
+    for (u8 counter = 0; counter < 6; ++counter) {
+        u8  cc        = ccs[counter];
+        u16 x         = (this->slice->mb_row * 16 + del_x[counter]) >> (cc > 0);
+        u16 y         = (this->slice->mb_col * 16 + del_y[counter]) >> (cc > 0);
+        u16 horz_size = this->pic->horz_size >> (cc > 0);
+        for (int i = 0; i < 8; ++i)
+            for (int j = 0; j < 8; ++j)
+                switch (this->pic->type) {
+                    case PIC_TYPE_P:
+                        this->pic->pixel[cc][idx2(x + i, y + j, horz_size)] = \
+                            this->pred_pixel(0, cc, x + i, y + j);
+                        break;
+                    case PIC_TYPE_B:
+                        if (this->mb_motion_f)
+                            this->pic->pixel[cc][idx2(x + i, y + j, horz_size)] += \
+                                (this->pred_pixel(0, cc, x + i, y + j));
+                        if (this->mb_motion_b)
+                            this->pic->pixel[cc][idx2(x + i, y + j, horz_size)] += \
+                                (this->pred_pixel(1, cc, x + i, y + j));
+                        if (this->mb_motion_f && this->mb_motion_b)
+                            this->pic->pixel[cc][idx2(x + i, y + j, horz_size)] >>= 1;
+                        break;
+                }
+    }
+}
+
+u8 MB::pred_pixel (u8 s, u8 cc, u16 x, u16 y) {
+    u16 horz_size = this->pic->horz_size >> (cc > 0);
+    i16 int_mv_0  = this->int_mv[cc][0][s][0];
+    i16 int_mv_1  = this->int_mv[cc][0][s][1];
+    u32 idx_1     = idx2(int_mv_1 + x    , int_mv_0 + y    , horz_size);
+    u32 idx_2     = idx2(int_mv_1 + x + 1, int_mv_0 + y    , horz_size);
+    u32 idx_3     = idx2(int_mv_1 + x    , int_mv_0 + y + 1, horz_size);
+    u32 idx_4     = idx2(int_mv_1 + x + 1, int_mv_0 + y + 1, horz_size);
+
+    if      (!this->half_f[cc][0][s][0] && !this->half_f[cc][0][s][1])
+        return ((u16)this->pic->ref[s]->pixel[cc][idx_1]);
+    else if ( this->half_f[cc][0][s][0] && !this->half_f[cc][0][s][1])
+        return ((u16)this->pic->ref[s]->pixel[cc][idx_1] + \
+                     this->pic->ref[s]->pixel[cc][idx_3]) >> 1;
+    else if (!this->half_f[cc][0][s][0] &&  this->half_f[cc][0][s][1])
+        return ((u16)this->pic->ref[s]->pixel[cc][idx_1] + \
+                     this->pic->ref[s]->pixel[cc][idx_2]) >> 1;
+    else
+        return ((u16)this->pic->ref[s]->pixel[cc][idx_1] + \
+                     this->pic->ref[s]->pixel[cc][idx_2] + \
+                     this->pic->ref[s]->pixel[cc][idx_3] + \
+                     this->pic->ref[s]->pixel[cc][idx_4]) >> 2;
 }
 
 void MB::decode (Stream* vs) {
@@ -215,58 +293,3 @@ void MB::decode (Stream* vs) {
         this->slice->reset_pre_dc_coeff();
 }
 
-void MB::pred () {
-    u8  ccs[6]   = {0, 0, 0, 0, 1, 2};
-    u8  del_x[6] = {0, 0, 8, 8, 0, 0};
-    u8  del_y[6] = {0, 8, 0, 8, 0, 0};
-    for (u8 counter = 0; counter < 6; ++counter) {
-        u8  cc        = ccs[counter];
-        u16 x         = (this->slice->mb_row * 16 + del_x[counter]) >> (cc > 0);
-        u16 y         = (this->slice->mb_col * 16 + del_y[counter]) >> (cc > 0);
-        u16 horz_size = this->pic->horz_size >> (cc > 0);
-        for (int i = 0; i < 8; ++i)
-            for (int j = 0; j < 8; ++j)
-                switch (this->pic->type) {
-                    case PIC_TYPE_P:
-                        this->pic->pixel[cc][idx2(x + i, y + j, horz_size)] = \
-                            (this->pred_pixel(0, cc, x + i, y + j));
-                        break;
-                    case PIC_TYPE_B:
-                        printf("B FRAME MC HAIYAA\n");
-                }
-    }
-}
-
-u8 MB::pred_pixel (u8 s, u8 cc, u16 x, u16 y) {
-    u16 horz_size = this->pic->horz_size >> (cc > 0);
-    i16 int_mv_0  = this->int_mv[cc][0][s][0];
-    i16 int_mv_1  = this->int_mv[cc][0][s][1];
-    u32 idx_1     = idx2(int_mv_1 + x    , int_mv_0 + y    , horz_size);
-    u32 idx_2     = idx2(int_mv_1 + x + 1, int_mv_0 + y    , horz_size);
-    u32 idx_3     = idx2(int_mv_1 + x    , int_mv_0 + y + 1, horz_size);
-    u32 idx_4     = idx2(int_mv_1 + x + 1, int_mv_0 + y + 1, horz_size);
-
-    if      (!this->half_f[cc][0][s][0] && !this->half_f[cc][0][s][1])
-        return ((u16)this->pic->ref[s]->pixel[cc][idx_1]);
-    else if ( this->half_f[cc][0][s][0] && !this->half_f[cc][0][s][1])
-        return ((u16)this->pic->ref[s]->pixel[cc][idx_1] + \
-                     this->pic->ref[s]->pixel[cc][idx_3]) >> 1;
-    else if (!this->half_f[cc][0][s][0] &&  this->half_f[cc][0][s][1])
-        return ((u16)this->pic->ref[s]->pixel[cc][idx_1] + \
-                     this->pic->ref[s]->pixel[cc][idx_2]) >> 1;
-    else
-        return ((u16)this->pic->ref[s]->pixel[cc][idx_1] + \
-                     this->pic->ref[s]->pixel[cc][idx_2] + \
-                     this->pic->ref[s]->pixel[cc][idx_3] + \
-                     this->pic->ref[s]->pixel[cc][idx_4]) >> 2;
-}
-
-void MB::reset_mv () {
-    for (u8 r = 0; r < 2; ++r)
-        for (u8 s = 0; s < 2; ++s)
-            for (u8 t = 0; t < 2; ++t) {
-                mv[r][s][t] = 0;
-                for (u8 cc = 0; cc < 3; ++cc)
-                    int_mv[cc][r][s][t] = half_f[cc][r][s][t] = 0;
-            }
-}

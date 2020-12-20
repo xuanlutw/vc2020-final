@@ -19,5 +19,7 @@ class Slice {
         // Predictor val
         i16 pre_dc_coeff[3];
         i16 pmv[2][2][2];       // Motion vector predictors, 7.6.3
+        u8  pre_mb_motion_f;
+        u8  pre_mb_motion_b;
 };
 
