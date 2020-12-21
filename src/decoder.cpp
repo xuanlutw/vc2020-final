@@ -72,11 +72,10 @@ int main (int argc, char* argv[]) {
         switch (vs->now_start_code()) {
             case SCODE_SEQ:
                 if (seq)
-                    delete seq;
+                    break;
                 seq = new Seq(vs);
                 seq->print();
-                if (!yuv_fp)
-                    yuv_fp = init_open_mode(seq, argc, argv);
+                yuv_fp = init_open_mode(seq, argc, argv);
                 break;
             case SCODE_USR:
                 /* DO NOTHING*/

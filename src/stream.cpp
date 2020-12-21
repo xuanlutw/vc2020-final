@@ -74,13 +74,17 @@ u8 Stream::next_start_code () {
 
     this->align();
     while (status != 3) {
-        switch (tmp = this->read_u8()) {
+        tmp = this->read_u8();
+        switch (status) {
             case 0:
                 status = (tmp == 0);
+                break;
             case 1:
-                status = (tmp == 0) << 1;
+                status = (tmp == 0)? 2: 0;
+                break;
             case 2:
                 status = (tmp == 0)? 2: (tmp == 1)? 3: 0;
+                break;
         }
     }
     this->start_code   = this->read_u8();
